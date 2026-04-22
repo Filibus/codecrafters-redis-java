@@ -5,12 +5,16 @@ import java.io.InputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class Main {
     static final String CLRF = "\r\n";
+    static Map<String, String> redisData = new HashMap<>();
 
     public static void main(String[] args) {
         int port = 6379;
@@ -56,6 +60,20 @@ public class Main {
             } else if (command.getCommand().equalsIgnoreCase("ECHO")) {
                 var commandArg = command.getArgs().getFirst();
                 return "$" + commandArg.length() + "\r\n" + commandArg + "\r\n";
+            } else if (command.getCommand().equalsIgnoreCase("SET")) {
+                var commandKey= command.getArgs().getFirst();
+                var commandValue = command.getArgs().get(1);
+                redisData.put(commandKey, commandValue);
+                return "+OK\r\n";
+            } else if (command.getCommand().equalsIgnoreCase("GET")) {
+                var commandKey= command.getArgs().getFirst();
+                var redisValue = redisData.get(commandKey);
+                if(redisValue != null) {
+                    return "$" + redisValue.length()
+                            + "\r\n" + redisValue + "\r\n";
+                } else {
+                    return "$-1\r\n";
+                }
             }
         }
         return null;
@@ -64,10 +82,12 @@ public class Main {
     private static RespCommand parseCommand(byte[] bytes) {
         List<RespDataHolder<?>> array = RespParser.parseArray(bytes);
         if (array.get(0).getDataType() == RespDataType.BULK_STRING) {
-            if (array.size() != 2) {
+            if (array.size() == 1) {
                 return new RespCommand((String) array.getFirst().data, Collections.emptyList());
             }
-            return new RespCommand((String) array.get(0).data, List.of((String) array.get(1).data));
+            List<String> args = array.subList(1, array.size())
+                    .stream().map(ar-> (String) ar.data).toList();
+            return new RespCommand((String) array.getFirst().data, args);
         }
         return null;
     }
