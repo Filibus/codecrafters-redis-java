@@ -21,19 +21,19 @@ public class RedisInMemory {
         redisData.put(key, List.of(new Entry(value, null)));
     }
 
-    public List<Entry>  addToList(String key, List<String> values) {
-        List<Entry> listElements = redisData.get(key);
-        if (listElements != null && !listElements.isEmpty()) {
-            for (String v : values) {
-                listElements.add(new Entry(v, null));
-            }
-            return listElements;
-        }
-        listElements = new ArrayList<>();
+    public List<Entry> addToList(String key, List<String> values) {
+        List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
         for (String v : values) {
             listElements.add(new Entry(v, null));
         }
-        redisData.put(key, listElements);
+        return listElements;
+    }
+
+    public List<Entry> prependToList(String key, List<String> values) {
+        List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
+        for (String v : values) {
+            listElements.addFirst(new Entry(v, null));
+        }
         return listElements;
     }
 

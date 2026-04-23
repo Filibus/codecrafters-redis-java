@@ -74,6 +74,11 @@ public class Main {
                 var commandValue = command.getArgs().subList(1, command.getArgs().size());
                 var list = redisData.addToList(commandKey, commandValue);
                 return ":" + list.size() + "\r\n";
+            } else if ("LPUSH".equalsIgnoreCase(command.getCommand())) {
+                var commandKey = command.getArgs().getFirst();
+                var commandValue = command.getArgs().subList(1, command.getArgs().size());
+                var list = redisData.prependToList(commandKey, commandValue);
+                return ":" + list.size() + "\r\n";
             } else if ("LRANGE".equalsIgnoreCase(command.getCommand())) {
                 var commandKey = command.getArgs().getFirst();
                 var start = Integer.parseInt(command.getArgs().get(1));
