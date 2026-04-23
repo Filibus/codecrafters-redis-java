@@ -99,6 +99,18 @@ public class Main {
                 var poppedElements = redisData.popEelements(commandKey, Integer.valueOf(args.get(1)))
                         .stream().map(RedisInMemory.Entry::value).toList();
                 return deserializeArray(poppedElements);
+            } else if ("BLPOP".equalsIgnoreCase(command.getCommand())) {
+                var listName = command.getArgs().getFirst();
+                var args = command.getArgs();
+                if (args.size() < 2) {
+                    return deserializeArray(Collections.emptyList());
+                }
+                var secondsToWait = Long.valueOf(args.get(1));
+                var poppedElement = redisData.blPop(listName, secondsToWait);
+                if (poppedElement == null) {
+                    return deserializeArray(Collections.emptyList());
+                }
+                return deserializeArray(List.of(listName,poppedElement.value()));
             }
         }
         return null;
