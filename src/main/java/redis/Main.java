@@ -64,6 +64,10 @@ public class Main {
                 var expiresAt = getTTL(command.getArgs());
                 redisData.set(commandKey, commandValue, expiresAt.orElse(null));
                 return "+OK\r\n";
+            } else if (command.getCommand().equalsIgnoreCase("TYPE")) {
+                var commandKey = command.getArgs().getFirst();
+                var type = redisData.getType(commandKey);
+                return "+" + type + "\r\n";
             } else if (command.getCommand().equalsIgnoreCase("GET")) {
                 var commandKey = command.getArgs().getFirst();
                 var redisValue = redisData.getIfPresent(commandKey);
@@ -111,7 +115,7 @@ public class Main {
                 if (poppedElement == null) {
                     return deserializeArray(null);
                 }
-                return deserializeArray(List.of(listName,poppedElement.value()));
+                return deserializeArray(List.of(listName, poppedElement.value()));
             }
         }
         return null;

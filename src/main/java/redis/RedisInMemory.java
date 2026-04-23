@@ -12,11 +12,12 @@ import java.util.Optional;
 public class RedisInMemory {
 
     private final Map<String, List<Entry>> redisData = new HashMap<>();
+    private final Map<String, Entry> redisDataSimple = new HashMap<>();
     private final Map<String, Deque<Long>> blPopWaiters = new HashMap<>();
     private long nextBlPopWaiterId = 0L;
 
     public void set(String key, String value) {
-        redisData.put(key, List.of(new Entry(value, null)));
+        redisDataSimple.put(key, new Entry(value, null));
     }
 
     public List<Entry> addToList(String key, List<String> values) {
@@ -129,19 +130,27 @@ public class RedisInMemory {
     public void set(String key, String value, Long ttlMillis) {
         Long expiresAt = ttlMillis == null || ttlMillis <= 0 ?
                 null : System.currentTimeMillis() + ttlMillis;
-        redisData.put(key, List.of(new Entry(value, expiresAt)));
+        redisDataSimple.put(key, new Entry(value, expiresAt));
+    }
+
+    public String getType(String key) {
+        Entry e = redisDataSimple.get(key);
+        if (e == null) {
+            return "none";
+        }
+        return "string";
     }
 
     public Optional<Entry> getIfPresent(String key) {
-        List<Entry> e = redisData.get(key);
-        if (e == null || e.isEmpty()) {
+        Entry e = redisDataSimple.get(key);
+        if (e == null) {
             return Optional.empty();
         }
-        if (e.getFirst().isExpired()) {
+        if (e.isExpired()) {
             redisData.remove(key);
             return Optional.empty();
         }
-        return Optional.of(e.getFirst());
+        return Optional.of(e);
     }
 
     public record Entry(String value, Long expiresAtMillis) {
