@@ -85,6 +85,10 @@ public class Main {
                 var stop = Integer.parseInt(command.getArgs().get(2));
                 var list = redisData.lRange(commandKey, start, stop);
                 return deserializeList(list);
+            } else if ("LLEN".equalsIgnoreCase(command.getCommand())) {
+                var commandKey = command.getArgs().getFirst();
+                var listSize = redisData.getListSize(commandKey);
+                return ":" + listSize + "\r\n";
             }
         }
         return null;

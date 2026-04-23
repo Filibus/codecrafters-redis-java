@@ -37,6 +37,11 @@ public class RedisInMemory {
         return listElements;
     }
 
+    public Integer getListSize(String key) {
+        List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
+        return listElements.size();
+    }
+
     public List<String> lRange(String key, int start, int stop) {
         List<Entry> items = redisData.get(key);
         if (items == null || items.isEmpty()) {
