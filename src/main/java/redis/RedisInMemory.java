@@ -37,17 +37,18 @@ public class RedisInMemory {
         return listElements;
     }
 
-    public List<String>  lRange(String key, Integer start, Integer stop) {
-        List<Entry> items =  redisData.getOrDefault(key, Collections.emptyList());
-        if (start < 0 || stop < 0 || start >= items.size() || start > stop) {
+    public List<String> lRange(String key, int start, int stop) {
+        List<Entry> items = redisData.get(key);
+        if (items == null || items.isEmpty()) {
             return Collections.emptyList();
         }
-        if (stop >= items.size()) {
-            stop = items.size() - 1;
+        int n = items.size();
+        int s = start < 0 ? Math.max(0, n + start) : start;
+        int t = stop  < 0 ? Math.max(0, n + stop)  : Math.min(stop, n - 1);
+        if (s >= n || s > t) {
+            return Collections.emptyList();
         }
-        return items.subList(start, stop+1).stream().filter(e -> !e.isExpired())
-                .map(e -> e.value)
-                .toList();
+        return items.subList(s, t + 1).stream().map(Entry::value).toList();
     }
 
     /** Sets a value that expires after {@code ttlMillis} milliseconds. */
