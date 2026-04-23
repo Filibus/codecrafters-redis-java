@@ -7,6 +7,7 @@ import java.net.Socket;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class Main {
 
@@ -73,6 +74,12 @@ public class Main {
                 var commandValue = command.getArgs().subList(1, command.getArgs().size());
                 var list = redisData.addToList(commandKey, commandValue);
                 return ":" + list.size() + "\r\n";
+            } else if ("LRANGE".equalsIgnoreCase(command.getCommand())) {
+                var commandKey = command.getArgs().getFirst();
+                var start = Integer.parseInt(command.getArgs().get(1));
+                var stop = Integer.parseInt(command.getArgs().get(2));
+                var list = redisData.lRange(commandKey, start, stop);
+                return deserializeList(list);
             }
         }
         return null;
@@ -101,5 +108,18 @@ public class Main {
             return Optional.empty();
         }
         return Optional.empty();
+    }
+
+    private static String deserializeList(List<String> items) {
+        if (items == null || items.isEmpty()) {
+            return "*0\r\n";
+        }
+        StringBuilder result = new StringBuilder();
+        result.append("*").append(items.size()).append("\r\n");
+        for (String item : items) {
+            result.append("$").append(item.length()).append("\r\n");
+            result.append(item).append("\r\n");
+        }
+        return result.toString();
     }
 }

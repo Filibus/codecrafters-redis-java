@@ -37,6 +37,19 @@ public class RedisInMemory {
         return listElements;
     }
 
+    public List<String>  lRange(String key, Integer start, Integer stop) {
+        List<Entry> items =  redisData.getOrDefault(key, Collections.emptyList());
+        if (start < 0 || stop < 0 || start >= items.size() || start > stop) {
+            return Collections.emptyList();
+        }
+        if (stop >= items.size()) {
+            stop = items.size() - 1;
+        }
+        return items.subList(start, stop+1).stream().filter(e -> !e.isExpired())
+                .map(e -> e.value)
+                .toList();
+    }
+
     /** Sets a value that expires after {@code ttlMillis} milliseconds. */
     public void set(String key, String value, Long ttlMillis) {
         Long expiresAt = ttlMillis == null || ttlMillis <= 0  ?
