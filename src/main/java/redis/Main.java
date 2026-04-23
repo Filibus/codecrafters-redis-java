@@ -102,7 +102,7 @@ public class Main {
                     return deserializeString(poppedElement);
                 }
                 var poppedElements = redisData.popEelements(commandKey, Integer.valueOf(args.get(1)))
-                        .stream().map(RedisInMemory.Entry::value).toList();
+                        .stream().map(Entry::value).toList();
                 return deserializeArray(poppedElements);
             } else if ("BLPOP".equalsIgnoreCase(command.getCommand())) {
                 var listName = command.getArgs().getFirst();
@@ -116,6 +116,16 @@ public class Main {
                     return deserializeArray(null);
                 }
                 return deserializeArray(List.of(listName, poppedElement.value()));
+            } else if ("XADD".equalsIgnoreCase(command.getCommand())) {
+                var args = command.getArgs();
+                if (args.size() < 4) {
+                    return deserializeString(null);
+                }
+                var streamKey = args.getFirst();
+                var entryId = args.get(1);
+                var keyValuePairs = args.subList(2, args.size());
+                var addedId = redisData.xAdd(streamKey, entryId, keyValuePairs);
+                return deserializeString(addedId);
             }
         }
         return null;

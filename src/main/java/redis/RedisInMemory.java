@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -13,26 +14,28 @@ public class RedisInMemory {
 
     private final Map<String, List<Entry>> redisData = new HashMap<>();
     private final Map<String, Entry> redisDataSimple = new HashMap<>();
+    private final Map<String, List<StreamEntry>> redisDataStream = new HashMap<>();
+    private final Map<String, RedisType> keyTypes = new HashMap<>();
     private final Map<String, Deque<Long>> blPopWaiters = new HashMap<>();
     private long nextBlPopWaiterId = 0L;
 
-    public void set(String key, String value) {
-        redisDataSimple.put(key, new Entry(value, null));
-    }
-
     public List<Entry> addToList(String key, List<String> values) {
+        clearNonListStorage(key);
         List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
         for (String v : values) {
             listElements.add(new Entry(v, null));
         }
+        keyTypes.put(key, RedisType.LIST);
         return listElements;
     }
 
     public List<Entry> prependToList(String key, List<String> values) {
+        clearNonListStorage(key);
         List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
         for (String v : values) {
             listElements.addFirst(new Entry(v, null));
         }
+        keyTypes.put(key, RedisType.LIST);
         return listElements;
     }
 
@@ -128,17 +131,28 @@ public class RedisInMemory {
      * Sets a value that expires after {@code ttlMillis} millieconds.
      */
     public void set(String key, String value, Long ttlMillis) {
+        clearNonStringStorage(key);
         Long expiresAt = ttlMillis == null || ttlMillis <= 0 ?
                 null : System.currentTimeMillis() + ttlMillis;
         redisDataSimple.put(key, new Entry(value, expiresAt));
+        keyTypes.put(key, RedisType.STRING);
     }
 
     public String getType(String key) {
-        Entry e = redisDataSimple.get(key);
-        if (e == null) {
-            return "none";
+        RedisType type = keyTypes.getOrDefault(key, RedisType.NONE);
+        return type.wireValue();
+    }
+
+    public String xAdd(String key, String id, List<String> keyValuePairs) {
+        clearNonStreamStorage(key);
+        List<StreamEntry> streamEntries = redisDataStream.computeIfAbsent(key, k -> new ArrayList<>());
+        Map<String, String> fields = new LinkedHashMap<>();
+        for (int i = 0; i + 1 < keyValuePairs.size(); i += 2) {
+            fields.put(keyValuePairs.get(i), keyValuePairs.get(i + 1));
         }
-        return "string";
+        streamEntries.add(new StreamEntry(id, fields));
+        keyTypes.put(key, RedisType.STREAM);
+        return id;
     }
 
     public Optional<Entry> getIfPresent(String key) {
@@ -147,15 +161,26 @@ public class RedisInMemory {
             return Optional.empty();
         }
         if (e.isExpired()) {
-            redisData.remove(key);
+            redisDataSimple.remove(key);
+            keyTypes.remove(key);
             return Optional.empty();
         }
         return Optional.of(e);
     }
 
-    public record Entry(String value, Long expiresAtMillis) {
-        boolean isExpired() {
-            return expiresAtMillis != null && System.currentTimeMillis() >= expiresAtMillis;
-        }
+    private void clearNonStringStorage(String key) {
+        redisData.remove(key);
+        redisDataStream.remove(key);
     }
+
+    private void clearNonListStorage(String key) {
+        redisDataSimple.remove(key);
+        redisDataStream.remove(key);
+    }
+
+    private void clearNonStreamStorage(String key) {
+        redisDataSimple.remove(key);
+        redisData.remove(key);
+    }
+
 }
