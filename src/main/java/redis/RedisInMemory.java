@@ -37,6 +37,14 @@ public class RedisInMemory {
         return listElements;
     }
 
+    public Entry popEelement(String key) {
+        List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
+        if (listElements.isEmpty()) {
+            return null;
+        }
+        return listElements.removeFirst();
+    }
+
     public Integer getListSize(String key) {
         List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
         return listElements.size();

@@ -89,6 +89,10 @@ public class Main {
                 var commandKey = command.getArgs().getFirst();
                 var listSize = redisData.getListSize(commandKey);
                 return ":" + listSize + "\r\n";
+            } else if ("LPOP".equalsIgnoreCase(command.getCommand())) {
+                var commandKey = command.getArgs().getFirst();
+                var poppedElement = redisData.popEelement(commandKey);
+                return deserializeString(poppedElement.value());
             }
         }
         return null;
@@ -130,5 +134,12 @@ public class Main {
             result.append(item).append("\r\n");
         }
         return result.toString();
+    }
+
+    private static String deserializeString(String item) {
+       if(item == null) {
+           return "$-1\r\n";
+       }
+       return "$" + item.length() + "\r\n" + item + "\r\n";
     }
 }
