@@ -4,19 +4,17 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class Main {
-    static final String CLRF = "\r\n";
-    static Map<String, String> redisData = new HashMap<>();
 
-    public static void main(String[] args) {
+    static final RedisInMemory redisData = new RedisInMemory();
+
+    static void main(String[] args) {
         int port = 6379;
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             // Since the tester restarts your program quite often, setting SO_REUSEADDR
@@ -54,26 +52,24 @@ public class Main {
             return "+" + respString + "\r\n";
         } else if (bytes[0] == '*') {
             var command = parseCommand(bytes);
-            if(command == null) return null;
+            if (command == null) return null;
             if (command.getCommand().equalsIgnoreCase("PING")) {
                 return "+PONG\r\n";
             } else if (command.getCommand().equalsIgnoreCase("ECHO")) {
                 var commandArg = command.getArgs().getFirst();
                 return "$" + commandArg.length() + "\r\n" + commandArg + "\r\n";
             } else if (command.getCommand().equalsIgnoreCase("SET")) {
-                var commandKey= command.getArgs().getFirst();
+                var commandKey = command.getArgs().getFirst();
                 var commandValue = command.getArgs().get(1);
-                redisData.put(commandKey, commandValue);
+                var expiresAt = getTTL(command.getArgs());
+                redisData.set(commandKey, commandValue, expiresAt.orElse(null));
                 return "+OK\r\n";
             } else if (command.getCommand().equalsIgnoreCase("GET")) {
-                var commandKey= command.getArgs().getFirst();
-                var redisValue = redisData.get(commandKey);
-                if(redisValue != null) {
-                    return "$" + redisValue.length()
-                            + "\r\n" + redisValue + "\r\n";
-                } else {
-                    return "$-1\r\n";
-                }
+                var commandKey = command.getArgs().getFirst();
+                var redisValue = redisData.getIfPresent(commandKey);
+                return redisValue.map(entry -> "$" + entry.value().length()
+                        + "\r\n" + entry.value() + "\r\n")
+                        .orElse("$-1\r\n");
             }
         }
         return null;
@@ -86,9 +82,21 @@ public class Main {
                 return new RespCommand((String) array.getFirst().data, Collections.emptyList());
             }
             List<String> args = array.subList(1, array.size())
-                    .stream().map(ar-> (String) ar.data).toList();
+                    .stream().map(ar -> (String) ar.data).toList();
             return new RespCommand((String) array.getFirst().data, args);
         }
         return null;
+    }
+
+    private static Optional<Long> getTTL(List<String> args) {
+        if (args.size() >= 4) {
+            if(args.get(2).equalsIgnoreCase("EX")){
+                return Optional.of(Long.parseLong(args.get(3)) * 1000);
+            } else if(args.get(2).equalsIgnoreCase("PX")){
+                return Optional.of(Long.parseLong(args.get(3)));
+            }
+            return Optional.empty();
+        }
+        return Optional.empty();
     }
 }
