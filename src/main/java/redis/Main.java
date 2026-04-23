@@ -2,6 +2,7 @@ package redis;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Collections;
@@ -103,12 +104,12 @@ public class Main {
                 var listName = command.getArgs().getFirst();
                 var args = command.getArgs();
                 if (args.size() < 2) {
-                    return deserializeArray(Collections.emptyList());
+                    return deserializeArray(null);
                 }
-                var secondsToWait = Long.valueOf(args.get(1));
+                var secondsToWait = new BigDecimal(args.get(1)).multiply(new BigDecimal(1000)).longValue();
                 var poppedElement = redisData.blPop(listName, secondsToWait);
                 if (poppedElement == null) {
-                    return deserializeArray(Collections.emptyList());
+                    return deserializeArray(null);
                 }
                 return deserializeArray(List.of(listName,poppedElement.value()));
             }

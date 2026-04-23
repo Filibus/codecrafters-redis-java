@@ -57,9 +57,9 @@ public class RedisInMemory {
         return removedElements;
     }
 
-    public Entry blPop(String key,Long timeoutSeconds) {
-        var millis = timeoutSeconds == null ? 0 : timeoutSeconds * 1000;
-        var deadline = System.currentTimeMillis() + millis;
+    public Entry blPop(String key, Long timeoutSeconds) {
+        var seconds = timeoutSeconds == null ? 0 : timeoutSeconds;
+        var deadline = System.currentTimeMillis() + seconds;
         long waiterId;
         synchronized (this) {
             waiterId = ++nextBlPopWaiterId;
@@ -67,7 +67,7 @@ public class RedisInMemory {
         }
 
         try {
-            while (millis == 0 || System.currentTimeMillis() < deadline) {
+            while (seconds == 0 || System.currentTimeMillis() < deadline) {
                 synchronized (this) {
                     List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
                     Deque<Long> waiters = blPopWaiters.get(key);
@@ -124,7 +124,7 @@ public class RedisInMemory {
     }
 
     /**
-     * Sets a value that expires after {@code ttlMillis} milliseconds.
+     * Sets a value that expires after {@code ttlMillis} millieconds.
      */
     public void set(String key, String value, Long ttlMillis) {
         Long expiresAt = ttlMillis == null || ttlMillis <= 0 ?
