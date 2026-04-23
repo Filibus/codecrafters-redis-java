@@ -5,9 +5,7 @@ import java.io.InputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 public class Main {
@@ -68,8 +66,13 @@ public class Main {
                 var commandKey = command.getArgs().getFirst();
                 var redisValue = redisData.getIfPresent(commandKey);
                 return redisValue.map(entry -> "$" + entry.value().length()
-                        + "\r\n" + entry.value() + "\r\n")
+                                + "\r\n" + entry.value() + "\r\n")
                         .orElse("$-1\r\n");
+            } else if ("RPUSH".equalsIgnoreCase(command.getCommand())) {
+                var commandKey = command.getArgs().getFirst();
+                var commandValue = command.getArgs().get(1);
+                var list = redisData.addToList(commandKey, commandValue);
+                return ":" + list.size() + "\r\n";
             }
         }
         return null;
@@ -90,9 +93,9 @@ public class Main {
 
     private static Optional<Long> getTTL(List<String> args) {
         if (args.size() >= 4) {
-            if(args.get(2).equalsIgnoreCase("EX")){
+            if (args.get(2).equalsIgnoreCase("EX")) {
                 return Optional.of(Long.parseLong(args.get(3)) * 1000);
-            } else if(args.get(2).equalsIgnoreCase("PX")){
+            } else if (args.get(2).equalsIgnoreCase("PX")) {
                 return Optional.of(Long.parseLong(args.get(3)));
             }
             return Optional.empty();
