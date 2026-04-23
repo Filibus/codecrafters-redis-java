@@ -91,8 +91,14 @@ public class Main {
                 return ":" + listSize + "\r\n";
             } else if ("LPOP".equalsIgnoreCase(command.getCommand())) {
                 var commandKey = command.getArgs().getFirst();
-                var poppedElement = redisData.popEelement(commandKey);
-                return deserializeString(poppedElement.value());
+                var args = command.getArgs();
+                if (args.size() == 1) {
+                    var poppedElement = redisData.popEelement(commandKey).value();
+                    return deserializeString(poppedElement);
+                }
+                var poppedElements = redisData.popEelements(commandKey, Integer.valueOf(args.get(1)))
+                        .stream().map(RedisInMemory.Entry::value).toList();
+                return deserializeArray(poppedElements);
             }
         }
         return null;
@@ -137,9 +143,19 @@ public class Main {
     }
 
     private static String deserializeString(String item) {
-       if(item == null) {
-           return "$-1\r\n";
-       }
-       return "$" + item.length() + "\r\n" + item + "\r\n";
+        if (item == null) {
+            return "$-1\r\n";
+        }
+        return "$" + item.length() + "\r\n" + item + "\r\n";
+    }
+
+    private static String deserializeArray(List<String> items) {
+        if (items == null) {
+            return "$-1\r\n";
+        }
+        return "*" + items.size() + "\r\n"
+                + items.stream().map(item -> "$" + item.length() + "\r\n" + item + "\r\n")
+                .collect(Collectors.joining());
     }
 }
+
