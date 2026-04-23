@@ -70,7 +70,7 @@ public class Main {
                         .orElse("$-1\r\n");
             } else if ("RPUSH".equalsIgnoreCase(command.getCommand())) {
                 var commandKey = command.getArgs().getFirst();
-                var commandValue = command.getArgs().get(1);
+                var commandValue = command.getArgs().subList(1, command.getArgs().size());
                 var list = redisData.addToList(commandKey, commandValue);
                 return ":" + list.size() + "\r\n";
             }

@@ -21,14 +21,18 @@ public class RedisInMemory {
         redisData.put(key, List.of(new Entry(value, null)));
     }
 
-    public List<Entry>  addToList(String key, String value) {
+    public List<Entry>  addToList(String key, List<String> values) {
         List<Entry> listElements = redisData.get(key);
         if (listElements != null && !listElements.isEmpty()) {
-            listElements.add(new Entry(value, null));
+            for (String v : values) {
+                listElements.add(new Entry(v, null));
+            }
             return listElements;
         }
         listElements = new ArrayList<>();
-        listElements.add(new Entry(value, null));
+        for (String v : values) {
+            listElements.add(new Entry(v, null));
+        }
         redisData.put(key, listElements);
         return listElements;
     }
