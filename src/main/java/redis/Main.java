@@ -157,14 +157,14 @@ public class Main {
 
     private static String deserializeString(String item) {
         if (item == null) {
-            return "$-1\r\n";
+            return "*-1\r\n";
         }
         return "$" + item.length() + "\r\n" + item + "\r\n";
     }
 
     private static String deserializeArray(List<String> items) {
         if (items == null) {
-            return "$-1\r\n";
+            return "*-1\r\n";
         }
         return "*" + items.size() + "\r\n"
                 + items.stream().map(item -> "$" + item.length() + "\r\n" + item + "\r\n")
