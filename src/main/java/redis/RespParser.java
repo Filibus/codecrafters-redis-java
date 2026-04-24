@@ -13,7 +13,7 @@ public class RespParser {
 
     public RespDataType getDataType(byte[] bytes) {
         var firstChar = (char) bytes[0];
-        return RespDataType.fromPrefix(firstChar + "");
+        return RespDataType.fromPrefix(firstChar);
     }
 
     public static String getSimpleString(byte[] bytes) {

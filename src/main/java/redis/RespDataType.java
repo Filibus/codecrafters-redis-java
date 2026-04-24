@@ -7,7 +7,8 @@ public enum RespDataType {
     BULK_STRING('$'),
     ARRAY('*'),
     NULL('_'),
-    BOOLEAN('#');
+    BOOLEAN('#'),
+    UNKNOWN('?');
 
     private final char prefix;
 
@@ -24,9 +25,9 @@ public enum RespDataType {
         return String.valueOf(prefix);
     }
 
-    public static RespDataType fromPrefix(String prefix) {
+    public static RespDataType fromPrefix(char prefix) {
         for (RespDataType type : values()) {
-            if (type.prefix == prefix.charAt(0)) {
+            if (type.prefix == prefix) {
                 return type;
             }
         }
@@ -40,6 +41,4 @@ public enum RespDataType {
             return UNKNOWN;
         }
     }
-
-    public static final RespDataType UNKNOWN = null;
 }

@@ -2,20 +2,26 @@ package redis;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class Main {
 
+    private static final String CRLF = "\r\n";
+    private static final String NULL_ARRAY = "*-1\r\n";
     static final RedisInMemory redisData = new RedisInMemory();
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         int port = 6379;
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             // Since the tester restarts your program quite often, setting SO_REUSEADDR
@@ -30,9 +36,13 @@ public class Main {
                         System.out.println("Connected to client");
                         InputStream inputStream = clientSocket.getInputStream();
                         byte[] buffer = new byte[1024];
-                        while (inputStream.read(buffer) != -1) {
-                            var respString = getRespString(buffer);
-                            clientSocket.getOutputStream().write(respString.getBytes());
+                        int bytesRead;
+                        while ((bytesRead = inputStream.read(buffer)) != -1) {
+                            byte[] request = Arrays.copyOf(buffer, bytesRead);
+                            var respString = getRespString(request);
+                            if (respString != null) {
+                                clientSocket.getOutputStream().write(respString.getBytes(StandardCharsets.UTF_8));
+                            }
                         }
                     } catch (IOException e) {
                         System.out.println("Error handling client: " + e.getMessage());
@@ -48,117 +58,194 @@ public class Main {
         if (bytes == null || bytes.length == 0) {
             return null;
         }
-        if (bytes[0] == '+') {
-            var respString = RespParser.getSimpleString(bytes);
-            return "+" + respString + "\r\n";
-        } else if (bytes[0] == '*') {
-            var command = parseCommand(bytes);
-            if (command == null) return null;
-            if (command.getCommand().equalsIgnoreCase("PING")) {
-                return "+PONG\r\n";
-            } else if (command.getCommand().equalsIgnoreCase("ECHO")) {
-                var commandArg = command.getArgs().getFirst();
-                return "$" + commandArg.length() + "\r\n" + commandArg + "\r\n";
-            } else if (command.getCommand().equalsIgnoreCase("SET")) {
-                var commandKey = command.getArgs().getFirst();
-                var commandValue = command.getArgs().get(1);
-                var expiresAt = getTTL(command.getArgs());
-                redisData.set(commandKey, commandValue, expiresAt.orElse(null));
-                return "+OK\r\n";
-            } else if (command.getCommand().equalsIgnoreCase("TYPE")) {
-                var commandKey = command.getArgs().getFirst();
-                var type = redisData.getType(commandKey);
-                return "+" + type + "\r\n";
-            } else if (command.getCommand().equalsIgnoreCase("GET")) {
-                var commandKey = command.getArgs().getFirst();
-                var redisValue = redisData.getIfPresent(commandKey);
-                return redisValue.map(entry -> "$" + entry.value().length()
-                                + "\r\n" + entry.value() + "\r\n")
-                        .orElse("$-1\r\n");
-            } else if ("RPUSH".equalsIgnoreCase(command.getCommand())) {
-                var commandKey = command.getArgs().getFirst();
-                var commandValue = command.getArgs().subList(1, command.getArgs().size());
-                var list = redisData.addToList(commandKey, commandValue);
-                return ":" + list.size() + "\r\n";
-            } else if ("LPUSH".equalsIgnoreCase(command.getCommand())) {
-                var commandKey = command.getArgs().getFirst();
-                var commandValue = command.getArgs().subList(1, command.getArgs().size());
-                var list = redisData.prependToList(commandKey, commandValue);
-                return ":" + list.size() + "\r\n";
-            } else if ("LRANGE".equalsIgnoreCase(command.getCommand())) {
-                var commandKey = command.getArgs().getFirst();
-                var start = Integer.parseInt(command.getArgs().get(1));
-                var stop = Integer.parseInt(command.getArgs().get(2));
-                var list = redisData.lRange(commandKey, start, stop);
-                return deserializeList(list);
-            } else if ("LLEN".equalsIgnoreCase(command.getCommand())) {
-                var commandKey = command.getArgs().getFirst();
-                var listSize = redisData.getListSize(commandKey);
-                return ":" + listSize + "\r\n";
-            } else if ("LPOP".equalsIgnoreCase(command.getCommand())) {
-                var commandKey = command.getArgs().getFirst();
-                var args = command.getArgs();
-                if (args.size() == 1) {
-                    var poppedElement = redisData.popEelement(commandKey).value();
-                    return deserializeString(poppedElement);
-                }
-                var poppedElements = redisData.popEelements(commandKey, Integer.valueOf(args.get(1)))
-                        .stream().map(Entry::value).toList();
-                return deserializeArray(poppedElements);
-            } else if ("BLPOP".equalsIgnoreCase(command.getCommand())) {
-                var listName = command.getArgs().getFirst();
-                var args = command.getArgs();
-                if (args.size() < 2) {
-                    return deserializeArray(null);
-                }
-                var secondsToWait = new BigDecimal(args.get(1)).multiply(new BigDecimal(1000)).longValue();
-                var poppedElement = redisData.blPop(listName, secondsToWait);
-                if (poppedElement == null) {
-                    return deserializeArray(null);
-                }
-                return deserializeArray(List.of(listName, poppedElement.value()));
-            } else if ("XADD".equalsIgnoreCase(command.getCommand())) {
-                var args = command.getArgs();
-                if (args.size() < 4) {
-                    return deserializeString(null);
-                }
-                var streamKey = args.getFirst();
-                var entryId = args.get(1);
-                var keyValuePairs = args.subList(2, args.size());
-                try {
-                    var addedId = redisData.xAdd(streamKey, entryId, keyValuePairs);
-                    return deserializeString(addedId.toString());
-                } catch (IllegalArgumentException ex) {
-                    return deserializeError(ex);
-                }
-            } else if ("XRANGE".equalsIgnoreCase(command.getCommand())) {
-                var args = command.getArgs();
-                if (args.size() < 3) {
-                    return deserializeString(null);
-                }
-                var streamKey = args.getFirst();
-                var startId = args.get(1);
-                var endId = args.get(2);
-                try {
-                    var entries = redisData.rangeStreamEntries(streamKey, startId, endId);
-                    return deserializeStream(entries);
-                } catch (IllegalArgumentException ex) {
-                    return deserializeError(ex);
-                }
-            }
+        return switch (bytes[0]) {
+            case '+' -> "+" + RespParser.getSimpleString(bytes) + CRLF;
+            case '*' -> handleCommand(parseCommand(bytes));
+            default -> null;
+        };
+    }
+
+    private static String handleCommand(RespCommand command) {
+        if (command == null || command.command() == null) {
+            return null;
         }
-        return null;
+
+        String cmd = command.command().toUpperCase(Locale.ROOT);
+        return switch (cmd) {
+            case "PING" -> "+PONG\r\n";
+            case "ECHO" -> handleEcho(command.args());
+            case "SET" -> handleSet(command.args());
+            case "TYPE" -> handleType(command.args());
+            case "GET" -> handleGet(command.args());
+            case "RPUSH" -> handleRpush(command.args());
+            case "LPUSH" -> handleLpush(command.args());
+            case "LRANGE" -> handleLrange(command.args());
+            case "LLEN" -> handleLlen(command.args());
+            case "LPOP" -> handleLpop(command.args());
+            case "BLPOP" -> handleBlpop(command.args());
+            case "XADD" -> handleXadd(command.args());
+            case "XRANGE" -> handleXrange(command.args());
+            case "XREAD" -> handleXread(command.args());
+            default -> null;
+        };
+    }
+
+    private static String handleEcho(List<String> args) {
+        if (args.isEmpty()) {
+            return deserializeString("");
+        }
+        return deserializeString(args.getFirst());
+    }
+
+    private static String handleSet(List<String> args) {
+        if (args.size() < 2) {
+            return deserializeString(null);
+        }
+        String key = args.getFirst();
+        String value = args.get(1);
+        redisData.set(key, value, getTTL(args).orElse(null));
+        return "+OK\r\n";
+    }
+
+    private static String handleType(List<String> args) {
+        if (args.isEmpty()) {
+            return "+none\r\n";
+        }
+        return "+" + redisData.getType(args.getFirst()) + CRLF;
+    }
+
+    private static String handleGet(List<String> args) {
+        if (args.isEmpty()) {
+            return deserializeString(null);
+        }
+        return redisData.getIfPresent(args.getFirst())
+                .map(Entry::value)
+                .map(Main::deserializeString)
+                .orElse("$-1\r\n");
+    }
+
+    private static String handleRpush(List<String> args) {
+        if (args.size() < 2) {
+            return ":0\r\n";
+        }
+        var list = redisData.addToList(args.getFirst(), args.subList(1, args.size()));
+        return ":" + list.size() + CRLF;
+    }
+
+    private static String handleLpush(List<String> args) {
+        if (args.size() < 2) {
+            return ":0\r\n";
+        }
+        var list = redisData.prependToList(args.getFirst(), args.subList(1, args.size()));
+        return ":" + list.size() + CRLF;
+    }
+
+    private static String handleLrange(List<String> args) {
+        if (args.size() < 3) {
+            return "*0\r\n";
+        }
+        String key = args.getFirst();
+        int start = Integer.parseInt(args.get(1));
+        int stop = Integer.parseInt(args.get(2));
+        return deserializeList(redisData.lRange(key, start, stop));
+    }
+
+    private static String handleLlen(List<String> args) {
+        if (args.isEmpty()) {
+            return ":0\r\n";
+        }
+        return ":" + redisData.getListSize(args.getFirst()) + CRLF;
+    }
+
+    private static String handleLpop(List<String> args) {
+        if (args.isEmpty()) {
+            return deserializeString(null);
+        }
+
+        String key = args.getFirst();
+        if (args.size() == 1) {
+            Entry popped = redisData.popElement(key);
+            return deserializeString(popped == null ? null : popped.value());
+        }
+
+        List<Entry> poppedElements = redisData.popElements(key, Integer.parseInt(args.get(1)));
+        if (poppedElements == null) {
+            return NULL_ARRAY;
+        }
+        return deserializeArray(poppedElements.stream().map(Entry::value).toList());
+    }
+
+    private static String handleBlpop(List<String> args) {
+        if (args.size() < 2) {
+            return NULL_ARRAY;
+        }
+
+        String listName = args.getFirst();
+        long millisToWait = new BigDecimal(args.get(1)).multiply(new BigDecimal(1000)).longValue();
+        Entry poppedElement = redisData.blPop(listName, millisToWait);
+        if (poppedElement == null) {
+            return NULL_ARRAY;
+        }
+        return deserializeArray(List.of(listName, poppedElement.value()));
+    }
+
+    private static String handleXadd(List<String> args) {
+        if (args.size() < 4) {
+            return deserializeString(null);
+        }
+        String streamKey = args.getFirst();
+        String entryId = args.get(1);
+        List<String> keyValuePairs = args.subList(2, args.size());
+        try {
+            StreamId addedId = redisData.xAdd(streamKey, entryId, keyValuePairs);
+            return deserializeString(addedId.toString());
+        } catch (IllegalArgumentException ex) {
+            return deserializeError(ex);
+        }
+    }
+
+    private static String handleXrange(List<String> args) {
+        if (args.size() < 3) {
+            return deserializeString(null);
+        }
+        try {
+            String streamKey = args.getFirst();
+            String startId = args.get(1);
+            String endId = args.get(2);
+            return deserializeStream(redisData.rangeStreamEntries(streamKey, startId, endId));
+        } catch (IllegalArgumentException ex) {
+            return deserializeError(ex);
+        }
+    }
+
+    private static String handleXread(List<String> args) {
+        if (args.size() < 3) {
+            return deserializeString(null);
+        }
+        List<String> afterStreams = args.subList(1, args.size());
+        int half = afterStreams.size() / 2;
+
+        List<String> streamKeys = afterStreams.subList(0, half);
+        List<String> streamIds = afterStreams.subList(half, afterStreams.size());
+        Map<String, List<StreamEntry>> streamEntries = new LinkedHashMap<>();
+        for (int i = 0; i < streamKeys.size(); i++) {
+            streamEntries.put(streamKeys.get(i), redisData.xRead(streamKeys.get(i), streamIds.get(i)));
+        }
+        return deserializeReadStream(streamEntries);
     }
 
     private static RespCommand parseCommand(byte[] bytes) {
         List<RespDataHolder<?>> array = RespParser.parseArray(bytes);
-        if (array.get(0).getDataType() == RespDataType.BULK_STRING) {
+        if (array.isEmpty()) {
+            return null;
+        }
+        if (array.getFirst().dataType() == RespDataType.BULK_STRING) {
             if (array.size() == 1) {
-                return new RespCommand((String) array.getFirst().data, Collections.emptyList());
+                return new RespCommand((String) array.getFirst().data(), Collections.emptyList());
             }
             List<String> args = array.subList(1, array.size())
-                    .stream().map(ar -> (String) ar.data).toList();
-            return new RespCommand((String) array.getFirst().data, args);
+                    .stream().map(ar -> (String) ar.data()).toList();
+            return new RespCommand((String) array.getFirst().data(), args);
         }
         return null;
     }
@@ -190,7 +277,7 @@ public class Main {
 
     private static String deserializeString(String item) {
         if (item == null) {
-            return "*-1\r\n";
+            return "$-1\r\n";
         }
         return "$" + item.length() + "\r\n" + item + "\r\n";
     }
@@ -204,28 +291,60 @@ public class Main {
                 .collect(Collectors.joining());
     }
 
+    private static String deserializeReadStream(Map<String,List<StreamEntry>> streamEntries) {
+        if (streamEntries == null || streamEntries.isEmpty()) {
+            return "*-1\r\n";
+        }
+        StringBuilder result = new StringBuilder(64 + streamEntries.size() * 48);
+        result.append('*').append(streamEntries.size()).append("\r\n");
+        for (Map.Entry<String, List<StreamEntry>> streamEntry : streamEntries.entrySet()) {
+            result.append("*2\r\n");
+            appendBulkString(result, streamEntry.getKey());
+            appendStreamEntries(result, streamEntry.getValue());
+        }
+        return result.toString();
+    }
+
     private static String deserializeStream(List<StreamEntry> streamEntries) {
         if (streamEntries == null || streamEntries.isEmpty()) {
             return "*-1\r\n";
         }
-        return "*" + streamEntries.size() + "\r\n" +
-                streamEntries.stream()
-                        .map(Main::serializeEntry)
-                        .collect(Collectors.joining());
+        StringBuilder result = new StringBuilder(64 + streamEntries.size() * 64);
+        appendStreamEntries(result, streamEntries);
+        return result.toString();
     }
 
-    private static String serializeEntry(StreamEntry entry) {
-        return "*2\r\n" +
-                deserializeString(entry.id().toString()) +
-                serializeFields(entry.fields());
+    private static void appendStreamEntries(StringBuilder result, List<StreamEntry> streamEntries) {
+        if (streamEntries == null || streamEntries.isEmpty()) {
+            result.append("*-1\r\n");
+            return;
+        }
+        result.append('*').append(streamEntries.size()).append("\r\n");
+        for (StreamEntry entry : streamEntries) {
+            result.append("*2\r\n");
+            appendBulkString(result, entry.id().toString());
+            appendFields(result, entry.fields());
+        }
     }
 
-    private static String serializeFields(Map<String, String> fields) {
-        return "*" + fields.size() * 2 + "\r\n" +
-                fields.entrySet().stream()
-                        .map(e -> deserializeString(e.getKey())
-                                + deserializeString(e.getValue()))
-                        .collect(Collectors.joining());
+    private static void appendFields(StringBuilder result, Map<String, String> fields) {
+        result.append('*').append(fields.size() * 2).append("\r\n");
+        for (Map.Entry<String, String> field : fields.entrySet()) {
+            appendBulkString(result, field.getKey());
+            appendBulkString(result, field.getValue());
+        }
+    }
+
+    private static void appendBulkString(StringBuilder result, String value) {
+        if (value == null) {
+            result.append("$-1\r\n");
+            return;
+        }
+        result.append('$')
+                .append(value.length())
+                .append("\r\n")
+                .append(value)
+                .append("\r\n");
     }
 
     private static String deserializeError(Exception ex) {

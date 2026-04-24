@@ -10,20 +10,19 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 public class RedisInMemory {
 
-    private final Map<String, List<Entry>> redisData = new HashMap<>();
-    private final Map<String, Entry> redisDataSimple = new HashMap<>();
-    private final Map<String, List<StreamEntry>> redisDataStream = new HashMap<>();
+    private final Map<String, List<Entry>> listData = new HashMap<>();
+    private final Map<String, Entry> stringData = new HashMap<>();
+    private final Map<String, List<StreamEntry>> streamData = new HashMap<>();
     private final Map<String, RedisType> keyTypes = new HashMap<>();
     private final Map<String, Deque<Long>> blPopWaiters = new HashMap<>();
     private long nextBlPopWaiterId = 0L;
 
     public List<Entry> addToList(String key, List<String> values) {
         clearNonListStorage(key);
-        List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
+        List<Entry> listElements = listForUpdate(key);
         for (String v : values) {
             listElements.add(new Entry(v, null));
         }
@@ -33,7 +32,7 @@ public class RedisInMemory {
 
     public List<Entry> prependToList(String key, List<String> values) {
         clearNonListStorage(key);
-        List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
+        List<Entry> listElements = listForUpdate(key);
         for (String v : values) {
             listElements.addFirst(new Entry(v, null));
         }
@@ -41,17 +40,17 @@ public class RedisInMemory {
         return listElements;
     }
 
-    public Entry popEelement(String key) {
-        List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
-        if (listElements.isEmpty()) {
+    public Entry popElement(String key) {
+        List<Entry> listElements = listData.get(key);
+        if (listElements == null || listElements.isEmpty()) {
             return null;
         }
         return listElements.removeFirst();
     }
 
-    public List<Entry> popEelements(String key, Integer count) {
-        List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
-        if (listElements.isEmpty()) {
+    public List<Entry> popElements(String key, Integer count) {
+        List<Entry> listElements = listData.get(key);
+        if (listElements == null || listElements.isEmpty()) {
             return null;
         }
         int removedCount = 0;
@@ -75,7 +74,7 @@ public class RedisInMemory {
         try {
             while (seconds == 0 || System.currentTimeMillis() < deadline) {
                 synchronized (this) {
-                    List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
+                    List<Entry> listElements = listForUpdate(key);
                     Deque<Long> waiters = blPopWaiters.get(key);
                     boolean isHeadWaiter = waiters != null
                             && !waiters.isEmpty()
@@ -111,12 +110,12 @@ public class RedisInMemory {
     }
 
     public Integer getListSize(String key) {
-        List<Entry> listElements = redisData.computeIfAbsent(key, k -> new ArrayList<>());
-        return listElements.size();
+        List<Entry> listElements = listData.get(key);
+        return listElements == null ? 0 : listElements.size();
     }
 
     public List<String> lRange(String key, int start, int stop) {
-        List<Entry> items = redisData.get(key);
+        List<Entry> items = listData.get(key);
         if (items == null || items.isEmpty()) {
             return Collections.emptyList();
         }
@@ -130,13 +129,13 @@ public class RedisInMemory {
     }
 
     /**
-     * Sets a value that expires after {@code ttlMillis} millieconds.
+     * Sets a value that expires after {@code ttlMillis} milliseconds.
      */
     public void set(String key, String value, Long ttlMillis) {
         clearNonStringStorage(key);
         Long expiresAt = ttlMillis == null || ttlMillis <= 0 ?
                 null : System.currentTimeMillis() + ttlMillis;
-        redisDataSimple.put(key, new Entry(value, expiresAt));
+        stringData.put(key, new Entry(value, expiresAt));
         keyTypes.put(key, RedisType.STRING);
     }
 
@@ -146,7 +145,7 @@ public class RedisInMemory {
     }
 
     public StreamId xAdd(String key, String id, List<String> keyValuePairs) {
-        List<StreamEntry> streamEntries = redisDataStream.computeIfAbsent(key, k -> new ArrayList<>());
+        List<StreamEntry> streamEntries = streamData.computeIfAbsent(key, k -> new ArrayList<>());
         StreamId newStreamId = generateStreamId(streamEntries, StreamId.from(id));
         if (newStreamId.compareTo(StreamId.from("0-0")) == 0) {
             throw new IllegalArgumentException("The ID specified in XADD must be greater than 0-0");
@@ -169,12 +168,22 @@ public class RedisInMemory {
     public List<StreamEntry> rangeStreamEntries(String key,
                                                 String startId, String endId) {
 
-        List<StreamEntry> entries = redisDataStream.computeIfAbsent(key, k -> new ArrayList<>());
+        List<StreamEntry> entries = streamData.computeIfAbsent(key, k -> new ArrayList<>());
         StreamId start = StreamId.fromRange(startId);
         StreamId end = StreamId.fromRange(endId);
         return entries.stream()
                 .filter(entry -> entry.id().compareTo(start) >= 0
                         && entry.id().compareTo(end) <= 0)
+                .toList();
+    }
+
+    public List<StreamEntry> xRead(String key,
+                                   String startId) {
+
+        List<StreamEntry> entries = streamData.computeIfAbsent(key, k -> new ArrayList<>());
+        StreamId start = StreamId.fromRange(startId);
+        return entries.stream()
+                .filter(entry -> entry.id().compareTo(start) >= 0)
                 .toList();
     }
 
@@ -218,12 +227,12 @@ public class RedisInMemory {
     }
 
     public Optional<Entry> getIfPresent(String key) {
-        Entry e = redisDataSimple.get(key);
+        Entry e = stringData.get(key);
         if (e == null) {
             return Optional.empty();
         }
         if (e.isExpired()) {
-            redisDataSimple.remove(key);
+            stringData.remove(key);
             keyTypes.remove(key);
             return Optional.empty();
         }
@@ -231,18 +240,22 @@ public class RedisInMemory {
     }
 
     private void clearNonStringStorage(String key) {
-        redisData.remove(key);
-        redisDataStream.remove(key);
+        listData.remove(key);
+        streamData.remove(key);
     }
 
     private void clearNonListStorage(String key) {
-        redisDataSimple.remove(key);
-        redisDataStream.remove(key);
+        stringData.remove(key);
+        streamData.remove(key);
     }
 
     private void clearNonStreamStorage(String key) {
-        redisDataSimple.remove(key);
-        redisData.remove(key);
+        stringData.remove(key);
+        listData.remove(key);
+    }
+
+    private List<Entry> listForUpdate(String key) {
+        return listData.computeIfAbsent(key, k -> new ArrayList<>());
     }
 
 }
