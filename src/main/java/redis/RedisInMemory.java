@@ -4,8 +4,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -143,16 +143,33 @@ public class RedisInMemory {
         return type.wireValue();
     }
 
-    public String xAdd(String key, String id, List<String> keyValuePairs) {
-        clearNonStreamStorage(key);
+    public StreamId xAdd(String key, String id, List<String> keyValuePairs) {
+        StreamId newStreamId = StreamId.from(id);
+        if (newStreamId.compareTo(StreamId.from("0-0")) == 0) {
+            throw new IllegalArgumentException("The ID specified in XADD must be greater than 0-0");
+        }
         List<StreamEntry> streamEntries = redisDataStream.computeIfAbsent(key, k -> new ArrayList<>());
+        if (streamEntries.isEmpty()) {
+            streamEntries.add(createStreamEntry(newStreamId, keyValuePairs));
+        } else {
+            StreamEntry lastEntry = streamEntries.getLast();
+            if (lastEntry.id().compareTo(newStreamId) >= 0) {
+                throw new IllegalArgumentException("The ID specified in XADD is equal or smaller than the target stream top item");
+            } else {
+                streamEntries.add(createStreamEntry(newStreamId, keyValuePairs));
+            }
+        }
+        clearNonStreamStorage(key);
+        keyTypes.put(key, RedisType.STREAM);
+        return streamEntries.getLast().id();
+    }
+
+    private StreamEntry createStreamEntry(StreamId newStreamId, List<String> keyValuePairs) {
         Map<String, String> fields = new LinkedHashMap<>();
         for (int i = 0; i + 1 < keyValuePairs.size(); i += 2) {
             fields.put(keyValuePairs.get(i), keyValuePairs.get(i + 1));
         }
-        streamEntries.add(new StreamEntry(id, fields));
-        keyTypes.put(key, RedisType.STREAM);
-        return id;
+        return new StreamEntry(newStreamId, fields);
     }
 
     public Optional<Entry> getIfPresent(String key) {

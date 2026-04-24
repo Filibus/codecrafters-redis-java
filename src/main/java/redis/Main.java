@@ -124,8 +124,12 @@ public class Main {
                 var streamKey = args.getFirst();
                 var entryId = args.get(1);
                 var keyValuePairs = args.subList(2, args.size());
-                var addedId = redisData.xAdd(streamKey, entryId, keyValuePairs);
-                return deserializeString(addedId);
+                try {
+                    var addedId = redisData.xAdd(streamKey, entryId, keyValuePairs);
+                    return deserializeString(addedId.toString());
+                } catch (IllegalArgumentException ex) {
+                    return deserializeError(ex);
+                }
             }
         }
         return null;
@@ -183,6 +187,10 @@ public class Main {
         return "*" + items.size() + "\r\n"
                 + items.stream().map(item -> "$" + item.length() + "\r\n" + item + "\r\n")
                 .collect(Collectors.joining());
+    }
+
+    private static String deserializeError(Exception ex) {
+        return "-ERR " + ex.getMessage() + "\r\n";
     }
 }
 
