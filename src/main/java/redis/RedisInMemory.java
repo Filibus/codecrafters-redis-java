@@ -10,6 +10,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class RedisInMemory {
 
@@ -163,6 +164,18 @@ public class RedisInMemory {
         clearNonStreamStorage(key);
         keyTypes.put(key, RedisType.STREAM);
         return streamEntries.getLast().id();
+    }
+
+    public List<StreamEntry> rangeStreamEntries(String key,
+                                                String startId, String endId) {
+
+        List<StreamEntry> entries = redisDataStream.computeIfAbsent(key, k -> new ArrayList<>());
+        StreamId start = StreamId.fromRange(startId);
+        StreamId endTimeStamp = StreamId.fromRange(endId);
+        return entries.stream()
+                .filter(entry -> entry.id().compareTo(start) >= 0
+                        && entry.id().compareTo(endTimeStamp) <= 0)
+                .toList();
     }
 
     private StreamEntry createStreamEntry(StreamId newStreamId, List<String> keyValuePairs) {

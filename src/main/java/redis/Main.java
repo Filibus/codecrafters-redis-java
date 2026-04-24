@@ -7,6 +7,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -130,6 +131,20 @@ public class Main {
                 } catch (IllegalArgumentException ex) {
                     return deserializeError(ex);
                 }
+            } else if ("XRANGE".equalsIgnoreCase(command.getCommand())) {
+                var args = command.getArgs();
+                if (args.size() < 3) {
+                    return deserializeString(null);
+                }
+                var streamKey = args.getFirst();
+                var startId = args.get(1);
+                var endId = args.get(2);
+                try {
+                    var entries = redisData.rangeStreamEntries(streamKey, startId, endId);
+                    return deserializeStream(entries);
+                } catch (IllegalArgumentException ex) {
+                    return deserializeError(ex);
+                }
             }
         }
         return null;
@@ -187,6 +202,30 @@ public class Main {
         return "*" + items.size() + "\r\n"
                 + items.stream().map(item -> "$" + item.length() + "\r\n" + item + "\r\n")
                 .collect(Collectors.joining());
+    }
+
+    private static String deserializeStream(List<StreamEntry> streamEntries) {
+        if (streamEntries == null || streamEntries.isEmpty()) {
+            return "*-1\r\n";
+        }
+        return "*" + streamEntries.size() + "\r\n" +
+                streamEntries.stream()
+                        .map(Main::serializeEntry)
+                        .collect(Collectors.joining());
+    }
+
+    private static String serializeEntry(StreamEntry entry) {
+        return "*2\r\n" +
+                deserializeString(entry.id().toString()) +
+                serializeFields(entry.fields());
+    }
+
+    private static String serializeFields(Map<String, String> fields) {
+        return "*" + fields.size() * 2 + "\r\n" +
+                fields.entrySet().stream()
+                        .map(e -> deserializeString(e.getKey())
+                                + deserializeString(e.getValue()))
+                        .collect(Collectors.joining());
     }
 
     private static String deserializeError(Exception ex) {
