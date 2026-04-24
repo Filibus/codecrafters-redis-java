@@ -2,6 +2,7 @@ package redis;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -145,10 +146,14 @@ public class RedisInMemory {
 
     public StreamId xAdd(String key, String id, List<String> keyValuePairs) {
         StreamId newStreamId = StreamId.from(id);
+        List<StreamEntry> streamEntries = redisDataStream.computeIfAbsent(key, k -> new ArrayList<>());
+        if(newStreamId.sequenceNumber() == null){
+            var sequenceNumber = generateSequenceNumber(streamEntries, newStreamId.milliSeconds());
+            newStreamId = new StreamId(newStreamId.milliSeconds(), sequenceNumber);
+        }
         if (newStreamId.compareTo(StreamId.from("0-0")) == 0) {
             throw new IllegalArgumentException("The ID specified in XADD must be greater than 0-0");
         }
-        List<StreamEntry> streamEntries = redisDataStream.computeIfAbsent(key, k -> new ArrayList<>());
         if (streamEntries.isEmpty()) {
             streamEntries.add(createStreamEntry(newStreamId, keyValuePairs));
         } else {
@@ -170,6 +175,20 @@ public class RedisInMemory {
             fields.put(keyValuePairs.get(i), keyValuePairs.get(i + 1));
         }
         return new StreamEntry(newStreamId, fields);
+    }
+
+    private Long generateSequenceNumber(List<StreamEntry> streamEntries, Long milliSeconds) {
+       if(milliSeconds == 0L) {
+           return 1L;
+       }
+       var seqNumber =  streamEntries.stream()
+               .filter(se -> se.id().milliSeconds().equals(milliSeconds))
+               .max(Comparator.comparing(se -> se.id().sequenceNumber()))
+               .map(StreamEntry::id).map(StreamId::sequenceNumber).orElse(null);
+       if(seqNumber == null){
+           return 0L;
+       }
+        return ++seqNumber;
     }
 
     public Optional<Entry> getIfPresent(String key) {
