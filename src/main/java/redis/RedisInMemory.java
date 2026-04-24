@@ -63,8 +63,7 @@ public class RedisInMemory {
     }
 
     public Entry blPop(String key, Long timeoutSeconds) {
-        var seconds = timeoutSeconds == null ? 0 : timeoutSeconds;
-        var deadline = System.currentTimeMillis() + seconds;
+        var deadline = System.currentTimeMillis() + timeoutSeconds;
         long waiterId;
         synchronized (this) {
             waiterId = ++nextBlPopWaiterId;
@@ -72,7 +71,7 @@ public class RedisInMemory {
         }
 
         try {
-            while (seconds == 0 || System.currentTimeMillis() < deadline) {
+            while (timeoutSeconds == 0L || System.currentTimeMillis() < deadline) {
                 synchronized (this) {
                     List<Entry> listElements = listForUpdate(key);
                     Deque<Long> waiters = blPopWaiters.get(key);
@@ -177,14 +176,89 @@ public class RedisInMemory {
                 .toList();
     }
 
-    public List<StreamEntry> xRead(String key,
-                                   String startId) {
-
-        List<StreamEntry> entries = streamData.computeIfAbsent(key, k -> new ArrayList<>());
+    /**
+     * Returns entries strictly after {@code startId} (XREAD semantics).
+     */
+    public List<StreamEntry> xRead(String key, String startId) {
+        List<StreamEntry> entries = streamData.get(key);
+        if (entries == null || entries.isEmpty()) {
+            return Collections.emptyList();
+        }
         StreamId start = StreamId.fromRange(startId);
         return entries.stream()
-                .filter(entry -> entry.id().compareTo(start) >= 0)
+                .filter(entry -> entry.id().compareTo(start) > 0)
                 .toList();
+    }
+
+    /**
+     * Returns the id of the latest entry for {@code key}, or {@code 0-0} when the
+     * stream is empty or missing. Used to resolve the {@code $} sentinel in XREAD.
+     */
+    public synchronized StreamId lastStreamId(String key) {
+        List<StreamEntry> entries = streamData.get(key);
+        if (entries == null || entries.isEmpty()) {
+            return new StreamId(0L, 0L);
+        }
+        return entries.getLast().id();
+    }
+
+    /**
+     * Blocking variant of XREAD. Waits up to {@code timeoutMillis} for any of
+     * the given streams to receive an entry strictly after its provided id.
+     *
+     * @param startAfterIds insertion-ordered map of stream key to last-seen id
+     * @param timeoutMillis maximum wait in ms; {@code 0} means wait forever; {@code null} means no wait
+     * @return ordered map of streams that produced new entries, or {@code null} on timeout
+     */
+    public Map<String, List<StreamEntry>> xReadBlocking(
+            LinkedHashMap<String, StreamId> startAfterIds, Long timeoutMillis) {
+
+        long deadline = timeoutMillis == null || timeoutMillis == 0L
+                ? Long.MAX_VALUE
+                : System.currentTimeMillis() + timeoutMillis;
+        boolean waitForever = timeoutMillis != null && timeoutMillis == 0L;
+
+        while (true) {
+            LinkedHashMap<String, List<StreamEntry>> result;
+            synchronized (this) {
+                result = collectNewEntries(startAfterIds);
+            }
+            if (!result.isEmpty()) {
+                return result;
+            }
+            if (timeoutMillis == null) {
+                return null;
+            }
+            if (!waitForever && System.currentTimeMillis() >= deadline) {
+                return null;
+            }
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+    }
+
+    private LinkedHashMap<String, List<StreamEntry>> collectNewEntries(
+            LinkedHashMap<String, StreamId> startAfterIds) {
+
+        LinkedHashMap<String, List<StreamEntry>> result = new LinkedHashMap<>();
+        for (Map.Entry<String, StreamId> e : startAfterIds.entrySet()) {
+            List<StreamEntry> entries = streamData.get(e.getKey());
+            if (entries == null || entries.isEmpty()) {
+                continue;
+            }
+            StreamId after = e.getValue();
+            List<StreamEntry> matched = entries.stream()
+                    .filter(entry -> entry.id().compareTo(after) > 0)
+                    .toList();
+            if (!matched.isEmpty()) {
+                result.put(e.getKey(), matched);
+            }
+        }
+        return result;
     }
 
     private StreamEntry createStreamEntry(StreamId newStreamId, List<String> keyValuePairs) {

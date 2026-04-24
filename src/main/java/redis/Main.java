@@ -219,19 +219,89 @@ public class Main {
     }
 
     private static String handleXread(List<String> args) {
-        if (args.size() < 3) {
-            return deserializeString(null);
+        if (args.isEmpty()) {
+            return syntaxError();
         }
-        List<String> afterStreams = args.subList(1, args.size());
-        int half = afterStreams.size() / 2;
 
-        List<String> streamKeys = afterStreams.subList(0, half);
-        List<String> streamIds = afterStreams.subList(half, afterStreams.size());
-        Map<String, List<StreamEntry>> streamEntries = new LinkedHashMap<>();
+        Long blockMillis = null;
+        int cursor = 0;
+        if (args.get(0).equalsIgnoreCase("BLOCK")) {
+            if (args.size() < 2) {
+                return syntaxError();
+            }
+            try {
+                blockMillis = Long.parseLong(args.get(1));
+            } catch (NumberFormatException e) {
+                return syntaxError();
+            }
+            if (blockMillis < 0) {
+                return syntaxError();
+            }
+            cursor = 2;
+        }
+
+        if (cursor >= args.size() || !args.get(cursor).equalsIgnoreCase("STREAMS")) {
+            return syntaxError();
+        }
+        cursor++;
+
+        List<String> rest = args.subList(cursor, args.size());
+        if (rest.isEmpty() || rest.size() % 2 != 0) {
+            return syntaxError();
+        }
+        int half = rest.size() / 2;
+        List<String> streamKeys = rest.subList(0, half);
+        List<String> streamIds = rest.subList(half, rest.size());
+
+        LinkedHashMap<String, StreamId> startAfterIds = resolveStartIds(streamKeys, streamIds);
+
+        if (blockMillis == null) {
+            return readStreamsNonBlocking(startAfterIds);
+        }
+        return readStreamsBlocking(startAfterIds, blockMillis);
+    }
+
+    private static LinkedHashMap<String, StreamId> resolveStartIds(
+            List<String> streamKeys, List<String> streamIds) {
+
+        LinkedHashMap<String, StreamId> startAfterIds = new LinkedHashMap<>();
         for (int i = 0; i < streamKeys.size(); i++) {
-            streamEntries.put(streamKeys.get(i), redisData.xRead(streamKeys.get(i), streamIds.get(i)));
+            String key = streamKeys.get(i);
+            String rawId = streamIds.get(i);
+            StreamId start = "$".equals(rawId)
+                    ? redisData.lastStreamId(key)
+                    : StreamId.fromRange(rawId);
+            startAfterIds.put(key, start);
+        }
+        return startAfterIds;
+    }
+
+    private static String readStreamsNonBlocking(LinkedHashMap<String, StreamId> startAfterIds) {
+        LinkedHashMap<String, List<StreamEntry>> streamEntries = new LinkedHashMap<>();
+        for (Map.Entry<String, StreamId> e : startAfterIds.entrySet()) {
+            List<StreamEntry> entries = redisData.xRead(e.getKey(), e.getValue().toString());
+            if (!entries.isEmpty()) {
+                streamEntries.put(e.getKey(), entries);
+            }
+        }
+        if (streamEntries.isEmpty()) {
+            return NULL_ARRAY;
         }
         return deserializeReadStream(streamEntries);
+    }
+
+    private static String readStreamsBlocking(
+            LinkedHashMap<String, StreamId> startAfterIds, long blockMillis) {
+
+        Map<String, List<StreamEntry>> result = redisData.xReadBlocking(startAfterIds, blockMillis);
+        if (result == null || result.isEmpty()) {
+            return NULL_ARRAY;
+        }
+        return deserializeReadStream(result);
+    }
+
+    private static String syntaxError() {
+        return "-ERR syntax error\r\n";
     }
 
     private static RespCommand parseCommand(byte[] bytes) {
