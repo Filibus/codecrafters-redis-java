@@ -2,10 +2,14 @@ package redis;
 
 public record StreamId(Long milliSeconds, Long sequenceNumber) implements Comparable<StreamId> {
     public static StreamId from(String id) {
+        if("*".equalsIgnoreCase(id)){
+            return new StreamId(null, null);
+        }
         String[] parts = id.split("-");
         if( parts.length != 2){
             throw new IllegalArgumentException("Invalid ID format");
-        } else if (parts[1].equalsIgnoreCase("*")) {
+        }
+        else if (parts[1].equalsIgnoreCase("*")) {
             return new StreamId(Long.parseLong(parts[0]), null);
         }
         Long sequenceNumber = Long.parseLong(parts[1]);

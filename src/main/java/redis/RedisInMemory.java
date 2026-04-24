@@ -145,12 +145,8 @@ public class RedisInMemory {
     }
 
     public StreamId xAdd(String key, String id, List<String> keyValuePairs) {
-        StreamId newStreamId = StreamId.from(id);
         List<StreamEntry> streamEntries = redisDataStream.computeIfAbsent(key, k -> new ArrayList<>());
-        if(newStreamId.sequenceNumber() == null){
-            var sequenceNumber = generateSequenceNumber(streamEntries, newStreamId.milliSeconds());
-            newStreamId = new StreamId(newStreamId.milliSeconds(), sequenceNumber);
-        }
+        StreamId newStreamId = generateStreamId(streamEntries, StreamId.from(id));
         if (newStreamId.compareTo(StreamId.from("0-0")) == 0) {
             throw new IllegalArgumentException("The ID specified in XADD must be greater than 0-0");
         }
@@ -177,17 +173,34 @@ public class RedisInMemory {
         return new StreamEntry(newStreamId, fields);
     }
 
+    private StreamId generateStreamId(List<StreamEntry> streamEntries, StreamId streamId) {
+        if (streamId.milliSeconds() == null) {
+            Long timeStamp = System.currentTimeMillis();
+            return streamEntries.stream()
+                    .filter(entry -> entry.id().milliSeconds().equals(timeStamp)).findFirst()
+                    .map(entry -> {
+                        var seqIncremented = entry.id().sequenceNumber() + 1L;
+                        return new StreamId(timeStamp, seqIncremented);
+                    }).orElseGet(() -> new StreamId(timeStamp, 0L));
+        }
+        if (streamId.sequenceNumber() == null) {
+            var sequenceNumber = generateSequenceNumber(streamEntries, streamId.milliSeconds());
+            return new StreamId(streamId.milliSeconds(), sequenceNumber);
+        }
+        return streamId;
+    }
+
     private Long generateSequenceNumber(List<StreamEntry> streamEntries, Long milliSeconds) {
-       if(milliSeconds == 0L) {
-           return 1L;
-       }
-       var seqNumber =  streamEntries.stream()
-               .filter(se -> se.id().milliSeconds().equals(milliSeconds))
-               .max(Comparator.comparing(se -> se.id().sequenceNumber()))
-               .map(StreamEntry::id).map(StreamId::sequenceNumber).orElse(null);
-       if(seqNumber == null){
-           return 0L;
-       }
+        if (milliSeconds == 0L) {
+            return 1L;
+        }
+        var seqNumber = streamEntries.stream()
+                .filter(se -> se.id().milliSeconds().equals(milliSeconds))
+                .max(Comparator.comparing(se -> se.id().sequenceNumber()))
+                .map(StreamEntry::id).map(StreamId::sequenceNumber).orElse(null);
+        if (seqNumber == null) {
+            return 0L;
+        }
         return ++seqNumber;
     }
 
