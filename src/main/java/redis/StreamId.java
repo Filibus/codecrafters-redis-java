@@ -18,6 +18,9 @@ public record StreamId(Long milliSeconds, Long sequenceNumber) implements Compar
 
     public static StreamId fromRange(String id) {
         String[] parts = id.split("-");
+        if( parts.length == 0){
+            return new StreamId(0L, 0L);
+        }
         if( parts.length == 1){
             return new StreamId(Long.parseLong(parts[0]), 0L);
         }

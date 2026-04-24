@@ -171,10 +171,10 @@ public class RedisInMemory {
 
         List<StreamEntry> entries = redisDataStream.computeIfAbsent(key, k -> new ArrayList<>());
         StreamId start = StreamId.fromRange(startId);
-        StreamId endTimeStamp = StreamId.fromRange(endId);
+        StreamId end = StreamId.fromRange(endId);
         return entries.stream()
                 .filter(entry -> entry.id().compareTo(start) >= 0
-                        && entry.id().compareTo(endTimeStamp) <= 0)
+                        && entry.id().compareTo(end) <= 0)
                 .toList();
     }
 
