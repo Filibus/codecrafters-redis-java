@@ -17,6 +17,11 @@ public record StreamId(Long milliSeconds, Long sequenceNumber) implements Compar
     }
 
     public static StreamId fromRange(String id) {
+        if("+".equalsIgnoreCase(id)){
+            return new StreamId(Long.MAX_VALUE, Long.MAX_VALUE);
+        } else if("-".equalsIgnoreCase(id)){
+            return new StreamId(Long.MIN_VALUE, Long.MAX_VALUE);
+        }
         String[] parts = id.split("-");
         if( parts.length == 0){
             return new StreamId(0L, 0L);
