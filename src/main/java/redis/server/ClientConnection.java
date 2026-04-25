@@ -6,6 +6,7 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.UUID;
 import redis.command.CommandRouter;
 import redis.protocol.RespParser;
 
@@ -16,6 +17,7 @@ public final class ClientConnection implements Runnable {
 
     private final Socket clientSocket;
     private final CommandRouter router;
+    private final String connectionId = UUID.randomUUID().toString();
 
     public ClientConnection(Socket clientSocket, CommandRouter router) {
         this.clientSocket = clientSocket;
@@ -25,7 +27,7 @@ public final class ClientConnection implements Runnable {
     @Override
     public void run() {
         try (clientSocket) {
-            System.out.println("Connected to client");
+            System.out.println("Connected to client with ID: " + connectionId);
             InputStream inputStream = clientSocket.getInputStream();
             OutputStream outputStream = clientSocket.getOutputStream();
             byte[] buffer = new byte[1024];
@@ -33,7 +35,7 @@ public final class ClientConnection implements Runnable {
             while ((bytesRead = inputStream.read(buffer)) != -1) {
                 byte[] request = Arrays.copyOf(buffer, bytesRead);
                 RespParser.parseCommand(request)
-                        .map(router::dispatch)
+                        .map(command -> router.dispatch(command, connectionId))
                         .filter(response -> response != null)
                         .ifPresent(
                                 response -> {

@@ -14,7 +14,7 @@ public final class RPushHandler implements CommandHandler {
     }
 
     @Override
-    public String execute(List<String> args) {
+    public String execute(List<String> args, String connectionId) {
         if (args.size() < 2) {
             return RespWriter.integer(0);
         }

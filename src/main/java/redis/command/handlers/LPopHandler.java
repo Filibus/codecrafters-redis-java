@@ -15,7 +15,7 @@ public final class LPopHandler implements CommandHandler {
     }
 
     @Override
-    public String execute(List<String> args) {
+    public String execute(List<String> args, String connectionId) {
         if (args.isEmpty()) {
             return RespWriter.bulkString(null);
         }

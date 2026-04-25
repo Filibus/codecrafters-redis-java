@@ -14,7 +14,7 @@ public final class XRangeHandler implements CommandHandler {
     }
 
     @Override
-    public String execute(List<String> args) {
+    public String execute(List<String> args, String connectionId) {
         if (args.size() < 3) {
             return RespWriter.bulkString(null);
         }

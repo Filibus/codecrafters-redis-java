@@ -15,7 +15,7 @@ public final class XAddHandler implements CommandHandler {
     }
 
     @Override
-    public String execute(List<String> args) {
+    public String execute(List<String> args, String connectionId) {
         if (args.size() < 4) {
             return RespWriter.bulkString(null);
         }

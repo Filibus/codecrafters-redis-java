@@ -51,7 +51,7 @@ public final class CommandRouter {
         return new CommandRouter(store);
     }
 
-    public String dispatch(Command command) {
+    public String dispatch(Command command,String connectionId) {
         if (command == null || command.name() == null) {
             return null;
         }
@@ -60,6 +60,6 @@ public final class CommandRouter {
         if (handler == null) {
             return RespWriter.error("unknown command");
         }
-        return handler.execute(command.args());
+        return handler.execute(command.args(), connectionId );
     }
 }
