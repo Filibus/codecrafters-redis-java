@@ -19,6 +19,7 @@ import redis.command.handlers.PingHandler;
 import redis.command.handlers.RPushHandler;
 import redis.command.handlers.SetHandler;
 import redis.command.handlers.TypeHandler;
+import redis.command.handlers.UnwatchHandler;
 import redis.command.handlers.WatchHandler;
 import redis.command.handlers.XAddHandler;
 import redis.command.handlers.XRangeHandler;
@@ -50,6 +51,7 @@ public final class CommandRouter {
         register("INCR", new IncrementHandler(store));
         register("MULTI", new MultiCommandHandler(store));
         register("WATCH", new WatchHandler(store));
+        register("UNWATCH", new UnwatchHandler(store));
         register("DISCARD", new DiscardHandler(store));
         register("EXEC", new ExecHandler(store, this::executeInTransaction));
     }
@@ -67,8 +69,9 @@ public final class CommandRouter {
             return null;
         }
         String name = command.name().toUpperCase(Locale.ROOT);
-        if (!"EXEC".equals(name) && !"DISCARD".equals(name) && store.connectionIsOpen(connectionId)) {
-            if("WATCH".equals(name)){
+        if (!"EXEC".equals(name) && !"DISCARD".equals(name) && !"UNWATCH".equals(name)
+                && store.connectionIsOpen(connectionId)) {
+            if ("WATCH".equals(name)) {
                 return RespWriter.error("WATCH inside MULTI is not allowed");
             }
             return store.addCommand(connectionId, command);

@@ -231,6 +231,13 @@ public final class DataStore {
         }
     }
 
+    /** Clears all WATCHed keys for this connection (UNWATCH). */
+    public void unwatch(String connectionId) {
+        synchronized (storeLock) {
+            unwatchConnectionLocked(connectionId);
+        }
+    }
+
     public String runExec(
             String connectionId, BiFunction<Command, String, String> runEachCommand) {
         synchronized (storeLock) {
