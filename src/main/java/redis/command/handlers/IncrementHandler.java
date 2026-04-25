@@ -22,7 +22,7 @@ public final class IncrementHandler implements CommandHandler {
             var incremented = store.increment(args.getFirst());
             return RespWriter.integer(incremented);
         } catch (NumberFormatException _) {
-            return RespWriter.error("ERR value is not an integer or out of range");
+            return RespWriter.error("value is not an integer or out of range");
         }
     }
 }
