@@ -18,7 +18,11 @@ public final class IncrementHandler implements CommandHandler {
         if (args.isEmpty()) {
             return RespWriter.simpleString("none");
         }
-        var incremented = store.increment(args.getFirst());
-        return RespWriter.integer(incremented);
+        try {
+            var incremented = store.increment(args.getFirst());
+            return RespWriter.integer(incremented);
+        } catch (NumberFormatException _) {
+            return RespWriter.error("ERR value is not an integer or out of range");
+        }
     }
 }
