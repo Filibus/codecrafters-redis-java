@@ -1,12 +1,13 @@
 package redis.command;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import redis.command.handlers.BLPOPHandler;
+import redis.command.handlers.DiscardHandler;
 import redis.command.handlers.EchoHandler;
+import redis.command.handlers.ExecHandler;
 import redis.command.handlers.GetHandler;
 import redis.command.handlers.IncrementHandler;
 import redis.command.handlers.LLenHandler;
@@ -47,6 +48,8 @@ public final class CommandRouter {
         register("XREAD", new XReadHandler(store));
         register("INCR", new IncrementHandler(store));
         register("MULTI", new MultiCommandHandler(store));
+        register("DISCARD", new DiscardHandler(store));
+        register("EXEC", new ExecHandler(store, this::executeInTransaction));
     }
 
     public static CommandRouter withDefaults(DataStore store) {
@@ -62,33 +65,19 @@ public final class CommandRouter {
             return null;
         }
         String name = command.name().toUpperCase(Locale.ROOT);
-        if (!"EXEC".equalsIgnoreCase(command.name())
-                && store.connectionIsOpen(connectionId)) {
+        if (!"EXEC".equals(name) && !"DISCARD".equals(name) && store.connectionIsOpen(connectionId)) {
             return store.addCommand(connectionId, command);
-        } else if ("EXEC".equalsIgnoreCase(command.name())) {
-            return executeCommands(connectionId);
         }
+        return executeInTransaction(command, connectionId);
+    }
+
+    // Runs a command without MULTI queuing; also used to replay a transaction in EXEC.
+    private String executeInTransaction(Command command, String connectionId) {
+        String name = command.name().toUpperCase(Locale.ROOT);
         CommandHandler handler = handlers.get(name);
         if (handler == null) {
             return RespWriter.error("unknown command");
         }
         return handler.execute(command.args(), connectionId);
-    }
-
-    public String executeCommands(String connectionId) {
-        if(!store.connectionIsOpen(connectionId)) {
-            return RespWriter.error("EXEC without MULTI");
-        }
-        var commands = store.getCommands(connectionId);
-        StringBuilder responses = new StringBuilder();
-        commands.forEach(command -> {
-            CommandHandler handler = handlers.get(command.name().toUpperCase(Locale.ROOT));
-            var response = handler.execute(command.args(), connectionId);
-            if (response != null) {
-                responses.append(response);
-            }
-        });
-        store.resetConnection(connectionId);
-        return "*" + commands.size() + "\r\n" + responses;
     }
 }

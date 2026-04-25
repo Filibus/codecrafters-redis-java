@@ -123,6 +123,12 @@ public final class DataStore {
         }
     }
 
+    public List<Command> removeCommands(String connectionId) {
+        synchronized (storeLock) {
+            return commandStore.removeCommands(connectionId);
+        }
+    }
+
     public List<Entry> popElements(String key, int count) {
         synchronized (storeLock) {
             return lists.popElements(key, count);

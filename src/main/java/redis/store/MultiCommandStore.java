@@ -22,6 +22,13 @@ public final class MultiCommandStore {
         commandData.remove(connectionId);
     }
 
+    public List<Command> removeCommands(String connectionId) {
+        return commandData.computeIfPresent(connectionId, (k, v) -> {
+            v.clear();
+            return v;
+        });
+    }
+
     public void addCommand(String connectionId, Command command) {
         commandData.computeIfAbsent(connectionId, k -> new LinkedList<>()).add(command);
     }
