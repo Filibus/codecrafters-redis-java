@@ -104,6 +104,12 @@ public final class DataStore {
         }
     }
 
+    public void resetConnection(String connectionId) {
+        synchronized (storeLock) {
+            commandStore.resetConnection(connectionId);
+        }
+    }
+
     public String addCommand(String connectionId, Command command) {
         synchronized (storeLock) {
             commandStore.addCommand(connectionId, command);

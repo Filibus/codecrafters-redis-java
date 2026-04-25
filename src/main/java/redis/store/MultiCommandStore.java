@@ -18,6 +18,10 @@ public final class MultiCommandStore {
         return commandData.containsKey(connectionId);
     }
 
+    public void resetConnection(String connectionId) {
+        commandData.remove(connectionId);
+    }
+
     public void addCommand(String connectionId, Command command) {
         commandData.computeIfAbsent(connectionId, k -> new LinkedList<>()).add(command);
     }

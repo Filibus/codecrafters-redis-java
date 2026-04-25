@@ -88,6 +88,7 @@ public final class CommandRouter {
                 responses.append(response);
             }
         });
-        return "*" + commands.size() + "\r\n" + responses.toString();
+        store.resetConnection(connectionId);
+        return "*" + commands.size() + "\r\n" + responses;
     }
 }
