@@ -20,6 +20,7 @@ public final class DiscardHandler implements CommandHandler {
             return RespWriter.error("DISCARD without MULTI");
         }
         store.resetConnection(connectionId);
+        store.unwatch(connectionId);
         return RespWriter.OK;
     }
 }
