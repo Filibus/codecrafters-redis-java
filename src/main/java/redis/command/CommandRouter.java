@@ -6,6 +6,7 @@ import java.util.Map;
 import redis.command.handlers.BLPOPHandler;
 import redis.command.handlers.EchoHandler;
 import redis.command.handlers.GetHandler;
+import redis.command.handlers.IncrementHandler;
 import redis.command.handlers.LLenHandler;
 import redis.command.handlers.LPopHandler;
 import redis.command.handlers.LPushHandler;
@@ -39,6 +40,7 @@ public final class CommandRouter {
         register("XADD", new XAddHandler(store));
         register("XRANGE", new XRangeHandler(store));
         register("XREAD", new XReadHandler(store));
+        register("INCR", new IncrementHandler(store));
     }
 
     private void register(String name, CommandHandler handler) {

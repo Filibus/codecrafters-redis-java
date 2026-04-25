@@ -1,138 +1,196 @@
 package redis.store;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
 import redis.domain.Entry;
 
+import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
+
 /**
- * In-memory list storage with FIFO BLPOP waiters.
+ * Thread-safe in-memory list store with proper BLPOP support.
  */
 public final class ListStore {
 
-    private final Map<String, List<Entry>> listData = new HashMap<>();
-    private final Map<String, Deque<Long>> blPopWaiters = new HashMap<>();
-    private long nextBlPopWaiterId = 0L;
+    private final ReentrantLock lock = new ReentrantLock(true); // fair lock
+
+    private final Map<String, Deque<Entry>> listData = new HashMap<>();
+    private final Map<String, Condition> notEmptyConditions = new HashMap<>();
+
+    // ---------------------------
+    // LIST OPERATIONS
+    // ---------------------------
 
     public List<Entry> addToList(String key, List<String> values) {
-        List<Entry> listElements = listForUpdate(key);
-        for (String v : values) {
-            listElements.add(new Entry(v, null));
+        lock.lock();
+        try {
+            Deque<Entry> list = listForUpdate(key);
+
+            for (String v : values) {
+                list.addLast(new Entry(v, null));
+            }
+
+            signalIfNeeded(key);
+
+            return new ArrayList<>(list);
+        } finally {
+            lock.unlock();
         }
-        return listElements;
     }
 
     public List<Entry> prependToList(String key, List<String> values) {
-        List<Entry> listElements = listForUpdate(key);
-        for (String v : values) {
-            listElements.addFirst(new Entry(v, null));
+        lock.lock();
+        try {
+            Deque<Entry> list = listForUpdate(key);
+
+            for (String v : values) {
+                list.addFirst(new Entry(v, null));
+            }
+
+            signalIfNeeded(key);
+
+            return new ArrayList<>(list);
+        } finally {
+            lock.unlock();
         }
-        return listElements;
     }
 
     public Entry popElement(String key) {
-        List<Entry> listElements = listData.get(key);
-        if (listElements == null || listElements.isEmpty()) {
-            return null;
+        lock.lock();
+        try {
+            Deque<Entry> list = listData.get(key);
+            if (list == null || list.isEmpty()) {
+                return null;
+            }
+            return list.pollFirst();
+        } finally {
+            lock.unlock();
         }
-        return listElements.removeFirst();
     }
 
     public List<Entry> popElements(String key, int count) {
-        List<Entry> listElements = listData.get(key);
-        if (listElements == null || listElements.isEmpty()) {
-            return null;
-        }
-        int removedCount = 0;
-        var removedElements = new ArrayList<Entry>();
-        while (removedCount < count && !listElements.isEmpty()) {
-            removedElements.add(listElements.removeFirst());
-            removedCount++;
-        }
-        return removedElements;
-    }
-
-    /**
-     * BLPOP with {@code blockMillis} (same as previous implementation: {@code 0} = block forever,
-     * {@code &gt;0} = deadline in ms from now). The external {@code lock} must be the same object
-     * used to guard all other store mutations in {@link DataStore}.
-     *
-     * @param timeoutMillis max wait: {@code 0} means block forever, {@code &gt;0} until deadline
-     */
-    public Entry bLPop(Object lock, String key, long timeoutMillis) {
-        var deadline = System.currentTimeMillis() + timeoutMillis;
-        long waiterId;
-        synchronized (lock) {
-            waiterId = ++nextBlPopWaiterId;
-            blPopWaiters.computeIfAbsent(key, ignored -> new LinkedList<>()).addLast(waiterId);
-        }
-
+        lock.lock();
         try {
-            while (timeoutMillis == 0L || System.currentTimeMillis() < deadline) {
-                synchronized (lock) {
-                    List<Entry> listElements = listForUpdate(key);
-                    Deque<Long> waiters = blPopWaiters.get(key);
-                    boolean isHeadWaiter = waiters != null
-                            && !waiters.isEmpty()
-                            && waiters.peekFirst() == waiterId;
+            Deque<Entry> list = listData.get(key);
+            if (list == null || list.isEmpty()) {
+                return Collections.emptyList();
+            }
 
-                    if (isHeadWaiter && !listElements.isEmpty()) {
-                        waiters.removeFirst();
-                        if (waiters.isEmpty()) {
-                            blPopWaiters.remove(key);
-                        }
-                        return listElements.removeFirst();
-                    }
-                }
-                try {
-                    Thread.sleep(10);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return null;
-                }
+            List<Entry> result = new ArrayList<>();
+            while (count-- > 0 && !list.isEmpty()) {
+                result.add(list.pollFirst());
             }
-            return null;
+
+            return result;
         } finally {
-            synchronized (lock) {
-                Deque<Long> waiters = blPopWaiters.get(key);
-                if (waiters != null) {
-                    waiters.remove(waiterId);
-                    if (waiters.isEmpty()) {
-                        blPopWaiters.remove(key);
-                    }
-                }
-            }
+            lock.unlock();
         }
     }
 
-    public int getListSize(String key) {
-        List<Entry> listElements = listData.get(key);
-        return listElements == null ? 0 : listElements.size();
+    // ---------------------------
+    // BLPOP (CORE FIX)
+    // ---------------------------
+
+    public Entry bLPop(String key, long timeoutMillis) {
+        lock.lock();
+        try {
+            Condition condition = notEmptyConditions
+                    .computeIfAbsent(key, k -> lock.newCondition());
+
+            long nanos = timeoutMillis > 0
+                    ? TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+                    : 0;
+
+            while (true) {
+                Deque<Entry> list = listData.get(key);
+
+                if (list != null && !list.isEmpty()) {
+                    return list.pollFirst();
+                }
+
+                if (timeoutMillis == 0) {
+                    condition.await();
+                } else {
+                    if (nanos <= 0) return null;
+                    nanos = condition.awaitNanos(nanos);
+                }
+            }
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            lock.unlock();
+        }
     }
+
+    // ---------------------------
+    // RANGE
+    // ---------------------------
 
     public List<String> lRange(String key, int start, int stop) {
-        List<Entry> items = listData.get(key);
-        if (items == null || items.isEmpty()) {
-            return Collections.emptyList();
+        lock.lock();
+        try {
+            Deque<Entry> list = listData.get(key);
+            if (list == null || list.isEmpty()) {
+                return Collections.emptyList();
+            }
+
+            List<Entry> items = new ArrayList<>(list);
+
+            int n = items.size();
+            int s = start < 0 ? Math.max(0, n + start) : start;
+            int t = stop < 0 ? Math.max(0, n + stop) : Math.min(stop, n - 1);
+
+            if (s >= n || s > t) {
+                return Collections.emptyList();
+            }
+
+            return items.subList(s, t + 1)
+                    .stream()
+                    .map(Entry::value)
+                    .toList();
+
+        } finally {
+            lock.unlock();
         }
-        int n = items.size();
-        int s = start < 0 ? Math.max(0, n + start) : start;
-        int t = stop < 0 ? Math.max(0, n + stop) : Math.min(stop, n - 1);
-        if (s >= n || s > t) {
-            return Collections.emptyList();
+    }
+
+    // ---------------------------
+    // SIZE / CLEAR
+    // ---------------------------
+
+    public int getListSize(String key) {
+        lock.lock();
+        try {
+            Deque<Entry> list = listData.get(key);
+            return list == null ? 0 : list.size();
+        } finally {
+            lock.unlock();
         }
-        return items.subList(s, t + 1).stream().map(Entry::value).toList();
     }
 
     public void clear(String key) {
-        listData.remove(key);
+        lock.lock();
+        try {
+            listData.remove(key);
+            notEmptyConditions.remove(key);
+        } finally {
+            lock.unlock();
+        }
     }
 
-    private List<Entry> listForUpdate(String key) {
-        return listData.computeIfAbsent(key, k -> new ArrayList<>());
+    // ---------------------------
+    // INTERNAL HELPERS
+    // ---------------------------
+
+    private Deque<Entry> listForUpdate(String key) {
+        return listData.computeIfAbsent(key, k -> new LinkedList<>());
+    }
+
+    private void signalIfNeeded(String key) {
+        Condition condition = notEmptyConditions.get(key);
+        if (condition != null) {
+            condition.signal(); // wakes oldest BLPOP waiter
+        }
     }
 }

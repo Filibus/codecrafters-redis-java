@@ -95,8 +95,14 @@ public final class DataStore {
         }
     }
 
-    public Entry bLPop(String key, long timeoutMillis) {
-        return lists.bLPop(storeLock, key, timeoutMillis);
+    public Long increment(String key) {
+        synchronized (storeLock) {
+            return strings.increment(key);
+        }
+    }
+
+    public Entry bLPop(String key, long timeoutMillis){
+        return lists.bLPop(key, timeoutMillis);
     }
 
     public int getListSize(String key) {

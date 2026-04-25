@@ -21,6 +21,17 @@ public final class StringStore {
         stringData.put(key, new Entry(value, expiresAt));
     }
 
+    public Long increment(String key) {
+        Entry e = stringData.get(key);
+        if (e == null) {
+            stringData.put(key, new Entry("1", null));
+            return 1L;
+        }
+        Long newValue = Long.parseLong(e.value()) + 1L;
+        stringData.put(key, new Entry(newValue.toString(), e.expiresAtMillis()));
+        return newValue;
+    }
+
     public Optional<Entry> getIfPresent(String key) {
         Entry e = stringData.get(key);
         if (e == null) {
