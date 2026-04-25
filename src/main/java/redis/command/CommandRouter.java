@@ -19,6 +19,7 @@ import redis.command.handlers.PingHandler;
 import redis.command.handlers.RPushHandler;
 import redis.command.handlers.SetHandler;
 import redis.command.handlers.TypeHandler;
+import redis.command.handlers.WatchHandler;
 import redis.command.handlers.XAddHandler;
 import redis.command.handlers.XRangeHandler;
 import redis.command.handlers.XReadHandler;
@@ -48,6 +49,7 @@ public final class CommandRouter {
         register("XREAD", new XReadHandler(store));
         register("INCR", new IncrementHandler(store));
         register("MULTI", new MultiCommandHandler(store));
+        register("WATCH", new WatchHandler(store));
         register("DISCARD", new DiscardHandler(store));
         register("EXEC", new ExecHandler(store, this::executeInTransaction));
     }
