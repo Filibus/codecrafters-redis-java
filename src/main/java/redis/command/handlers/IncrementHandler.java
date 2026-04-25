@@ -19,7 +19,10 @@ public final class IncrementHandler implements CommandHandler {
             return RespWriter.simpleString("none");
         }
         try {
-            var incremented = store.increment(args.getFirst());
+            Long incremented = store.increment(args.getFirst());
+            if (incremented == null) {
+                return RespWriter.error("WRONGTYPE Operation against a key holding the wrong kind of value");
+            }
             return RespWriter.integer(incremented);
         } catch (NumberFormatException _) {
             return RespWriter.error("value is not an integer or out of range");

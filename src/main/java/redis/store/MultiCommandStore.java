@@ -1,14 +1,19 @@
 package redis.store;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import redis.command.Command;
 
+/**
+ * Per-connection command queues for {@code MULTI}. Not thread-safe: {@link DataStore} must
+ * serialize access (typically via {@code synchronized} on a single store lock).
+ */
 public final class MultiCommandStore {
 
-    private final Map<String, List<Command>> commandData = new ConcurrentHashMap<>();
+    private final Map<String, List<Command>> commandData = new HashMap<>();
 
     public void addConnection(String connectionId) {
         commandData.put(connectionId, new LinkedList<>());
@@ -33,7 +38,15 @@ public final class MultiCommandStore {
         commandData.computeIfAbsent(connectionId, k -> new LinkedList<>()).add(command);
     }
 
-    public List<Command> getCommand(String connectionId) {
-        return commandData.computeIfAbsent(connectionId, k -> new LinkedList<>());
+    /**
+     * Snapshot of the queued commands, or an empty list if the connection is not in MULTI. Never
+     * creates a new queue entry.
+     */
+    public List<Command> copyQueue(String connectionId) {
+        List<Command> list = commandData.get(connectionId);
+        if (list == null) {
+            return List.of();
+        }
+        return new ArrayList<>(list);
     }
 }
