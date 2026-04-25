@@ -11,6 +11,7 @@ import redis.command.handlers.LLenHandler;
 import redis.command.handlers.LPopHandler;
 import redis.command.handlers.LPushHandler;
 import redis.command.handlers.LRangeHandler;
+import redis.command.handlers.MultiCommandHandler;
 import redis.command.handlers.PingHandler;
 import redis.command.handlers.RPushHandler;
 import redis.command.handlers.SetHandler;
@@ -24,8 +25,10 @@ import redis.store.DataStore;
 public final class CommandRouter {
 
     private final Map<String, CommandHandler> handlers = new HashMap<>();
+    private final DataStore store;
 
     public CommandRouter(DataStore store) {
+        this.store = store;
         register("PING", new PingHandler());
         register("ECHO", new EchoHandler());
         register("SET", new SetHandler(store));
@@ -41,6 +44,7 @@ public final class CommandRouter {
         register("XRANGE", new XRangeHandler(store));
         register("XREAD", new XReadHandler(store));
         register("INCR", new IncrementHandler(store));
+        register("MULTI", new MultiCommandHandler(store));
     }
 
     private void register(String name, CommandHandler handler) {
@@ -56,6 +60,9 @@ public final class CommandRouter {
             return null;
         }
         String name = command.name().toUpperCase(Locale.ROOT);
+        if(store.connectionIsOpen(connectionId)) {
+            return store.addCommand(connectionId, command);
+        }
         CommandHandler handler = handlers.get(name);
         if (handler == null) {
             return RespWriter.error("unknown command");

@@ -4,10 +4,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import redis.command.Command;
 import redis.domain.Entry;
 import redis.domain.RedisType;
 import redis.domain.StreamEntry;
 import redis.domain.StreamId;
+import redis.protocol.RespWriter;
 
 /**
  * Facade for string, list, and stream storage with a single type per key, mirroring the
@@ -20,6 +22,7 @@ public final class DataStore {
     private final StringStore strings = new StringStore(types);
     private final ListStore lists = new ListStore();
     private final StreamStore streams = new StreamStore();
+    private final MultiCommandStore commandStore = new MultiCommandStore();
 
     public void assignType(String key, RedisType type) {
         synchronized (storeLock) {
@@ -86,6 +89,31 @@ public final class DataStore {
     public Entry popElement(String key) {
         synchronized (storeLock) {
             return lists.popElement(key);
+        }
+    }
+
+    public void addConnection(String connectionId) {
+        synchronized (storeLock) {
+            commandStore.addConnection(connectionId);
+        }
+    }
+
+    public boolean connectionIsOpen(String connectionId) {
+        synchronized (storeLock) {
+            return commandStore.connectionOpen(connectionId);
+        }
+    }
+
+    public String addCommand(String connectionId, Command command) {
+        synchronized (storeLock) {
+            commandStore.addCommand(connectionId, command);
+            return RespWriter.simpleString("QUEUED");
+        }
+    }
+
+    public List<Command> getCommands(String connectionId) {
+        synchronized (storeLock) {
+            return commandStore.getCommand(connectionId);
         }
     }
 

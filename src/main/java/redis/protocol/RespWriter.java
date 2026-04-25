@@ -16,6 +16,7 @@ public final class RespWriter {
     /** Empty RESP array, used e.g. for LRANGE with wrong arity. */
     public static final String EMPTY_ARRAY = "*0\r\n";
     public static final String OK = "+OK\r\n";
+    public static final String QUEUED = "+QUEUED\r\n";
     public static final String PONG = "+PONG\r\n";
 
     private RespWriter() {
