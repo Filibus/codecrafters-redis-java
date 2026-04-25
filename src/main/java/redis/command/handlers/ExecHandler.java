@@ -23,15 +23,10 @@ public final class ExecHandler implements CommandHandler {
         if (!store.connectionIsOpen(connectionId)) {
             return RespWriter.error("EXEC without MULTI");
         }
-        var commands = store.getCommands(connectionId);
-        StringBuilder responses = new StringBuilder();
-        for (Command c : commands) {
-            String response = runTransactionCommand.apply(c, connectionId);
-            if (response != null) {
-                responses.append(response);
-            }
+        String out = store.runExec(connectionId, runTransactionCommand);
+        if (out == null) {
+            return RespWriter.error("EXEC without MULTI");
         }
-        store.resetConnection(connectionId);
-        return "*" + commands.size() + "\r\n" + responses;
+        return out;
     }
 }

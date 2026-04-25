@@ -1,9 +1,13 @@
 package redis.store;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
 import redis.command.Command;
 import redis.domain.Entry;
 import redis.domain.RedisType;
@@ -23,6 +27,11 @@ public final class DataStore {
     private final ListStore lists = new ListStore();
     private final StreamStore streams = new StreamStore();
     private final MultiCommandStore commandStore = new MultiCommandStore();
+
+    /** Logical version per key; any mutation advances it (used for WATCH/EXEC). */
+    private final Map<String, Long> keyVersions = new ConcurrentHashMap<>();
+
+    private final Map<String, Map<String, Long>> connectionWatches = new HashMap<>();
 
     public void assignType(String key, RedisType type) {
         synchronized (storeLock) {
@@ -57,6 +66,7 @@ public final class DataStore {
         synchronized (storeLock) {
             assignTypeLocked(key, RedisType.STRING);
             strings.set(key, value, ttlMillis);
+            bumpKeyVersion(key);
         }
     }
 
@@ -75,20 +85,28 @@ public final class DataStore {
     public List<Entry> addToList(String key, List<String> values) {
         synchronized (storeLock) {
             assignTypeLocked(key, RedisType.LIST);
-            return lists.addToList(key, values);
+            List<Entry> result = lists.addToList(key, values);
+            bumpKeyVersion(key);
+            return result;
         }
     }
 
     public List<Entry> prependToList(String key, List<String> values) {
         synchronized (storeLock) {
             assignTypeLocked(key, RedisType.LIST);
-            return lists.prependToList(key, values);
+            List<Entry> result = lists.prependToList(key, values);
+            bumpKeyVersion(key);
+            return result;
         }
     }
 
     public Entry popElement(String key) {
         synchronized (storeLock) {
-            return lists.popElement(key);
+            Entry popped = lists.popElement(key);
+            if (popped != null) {
+                bumpKeyVersion(key);
+            }
+            return popped;
         }
     }
 
@@ -131,18 +149,28 @@ public final class DataStore {
 
     public List<Entry> popElements(String key, int count) {
         synchronized (storeLock) {
-            return lists.popElements(key, count);
+            List<Entry> popped = lists.popElements(key, count);
+            if (!popped.isEmpty()) {
+                bumpKeyVersion(key);
+            }
+            return popped;
         }
     }
 
     public Long increment(String key) {
         synchronized (storeLock) {
-            return strings.increment(key);
+            Long n = strings.increment(key);
+            bumpKeyVersion(key);
+            return n;
         }
     }
 
-    public Entry bLPop(String key, long timeoutMillis){
-        return lists.bLPop(key, timeoutMillis);
+    public Entry bLPop(String key, long timeoutMillis) {
+        Entry e = lists.bLPop(key, timeoutMillis);
+        if (e != null) {
+            bumpKeyVersion(key);
+        }
+        return e;
     }
 
     public int getListSize(String key) {
@@ -160,7 +188,9 @@ public final class DataStore {
     public StreamId xAdd(String key, String id, List<String> keyValuePairs) {
         synchronized (storeLock) {
             assignTypeLocked(key, RedisType.STREAM);
-            return streams.xAdd(key, id, keyValuePairs);
+            StreamId idOut = streams.xAdd(key, id, keyValuePairs);
+            bumpKeyVersion(key);
+            return idOut;
         }
     }
 
@@ -185,5 +215,71 @@ public final class DataStore {
     public Map<String, List<StreamEntry>> xReadBlocking(
             LinkedHashMap<String, StreamId> startAfterIds, Long timeoutMillis) {
         return streams.xReadBlocking(storeLock, startAfterIds, timeoutMillis);
+    }
+
+    public void watch(String connectionId, List<String> keys) {
+        synchronized (storeLock) {
+            if (keys.isEmpty()) {
+                unwatchConnectionLocked(connectionId);
+                return;
+            }
+            Map<String, Long> perKey =
+                    connectionWatches.computeIfAbsent(connectionId, k -> new HashMap<>());
+            for (String key : keys) {
+                perKey.put(key, keyVersions.getOrDefault(key, 0L));
+            }
+        }
+    }
+
+    public String runExec(
+            String connectionId, BiFunction<Command, String, String> runEachCommand) {
+        synchronized (storeLock) {
+            if (!commandStore.connectionOpen(connectionId)) {
+                return null;
+            }
+            List<Command> commands = new ArrayList<>(commandStore.getCommand(connectionId));
+            if (!watchesSatisfiedLocked(connectionId)) {
+                commandStore.resetConnection(connectionId);
+                unwatchConnectionLocked(connectionId);
+                return RespWriter.NULL_ARRAY;
+            }
+            if (commands.isEmpty()) {
+                commandStore.resetConnection(connectionId);
+                unwatchConnectionLocked(connectionId);
+                return RespWriter.EMPTY_ARRAY;
+            }
+            StringBuilder responses = new StringBuilder();
+            for (Command c : commands) {
+                String response = runEachCommand.apply(c, connectionId);
+                if (response != null) {
+                    responses.append(response);
+                }
+            }
+            commandStore.resetConnection(connectionId);
+            unwatchConnectionLocked(connectionId);
+            return "*" + commands.size() + "\r\n" + responses;
+        }
+    }
+
+    private void unwatchConnectionLocked(String connectionId) {
+        connectionWatches.remove(connectionId);
+    }
+
+    private boolean watchesSatisfiedLocked(String connectionId) {
+        Map<String, Long> watched = connectionWatches.get(connectionId);
+        if (watched == null || watched.isEmpty()) {
+            return true;
+        }
+        for (Map.Entry<String, Long> e : watched.entrySet()) {
+            long current = keyVersions.getOrDefault(e.getKey(), 0L);
+            if (current != e.getValue()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void bumpKeyVersion(String key) {
+        keyVersions.merge(key, 1L, Long::sum);
     }
 }
