@@ -1,6 +1,8 @@
 package redis.command;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import redis.command.handlers.BLPOPHandler;
@@ -47,26 +49,45 @@ public final class CommandRouter {
         register("MULTI", new MultiCommandHandler(store));
     }
 
-    private void register(String name, CommandHandler handler) {
-        handlers.put(name, handler);
-    }
-
     public static CommandRouter withDefaults(DataStore store) {
         return new CommandRouter(store);
     }
 
-    public String dispatch(Command command,String connectionId) {
+    private void register(String name, CommandHandler handler) {
+        handlers.put(name, handler);
+    }
+
+    public String dispatch(Command command, String connectionId) {
         if (command == null || command.name() == null) {
             return null;
         }
         String name = command.name().toUpperCase(Locale.ROOT);
-        if(store.connectionIsOpen(connectionId)) {
+        if (!"EXEC".equalsIgnoreCase(command.name())
+                && store.connectionIsOpen(connectionId)) {
             return store.addCommand(connectionId, command);
+        } else if ("EXEC".equalsIgnoreCase(command.name())) {
+            return executeCommands(connectionId);
         }
         CommandHandler handler = handlers.get(name);
         if (handler == null) {
             return RespWriter.error("unknown command");
         }
-        return handler.execute(command.args(), connectionId );
+        return handler.execute(command.args(), connectionId);
+    }
+
+    public String executeCommands(String connectionId) {
+        if(!store.connectionIsOpen(connectionId)) {
+            return RespWriter.error("EXEC without MULTI");
+        }
+        var commands = store.getCommands(connectionId);
+        StringBuilder responses = new StringBuilder();
+        commands.forEach(command -> {
+            CommandHandler handler = handlers.get(command.name().toUpperCase(Locale.ROOT));
+            var response = handler.execute(command.args(), connectionId);
+            if (response != null) {
+                responses.append(response);
+            }
+        });
+        return "*" + commands.size() + "\r\n" + responses.toString();
     }
 }

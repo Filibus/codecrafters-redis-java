@@ -1,17 +1,17 @@
 package redis.store;
 
-import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import redis.command.Command;
 
 public final class MultiCommandStore {
 
-    private final Map<String, List<Command>> commandData = new LinkedHashMap<>();
+    private final Map<String, List<Command>> commandData = new ConcurrentHashMap<>();
 
     public void addConnection(String connectionId) {
-        commandData.put(connectionId, null);
+        commandData.put(connectionId, new LinkedList<>());
     }
 
     public boolean connectionOpen(String connectionId) {
