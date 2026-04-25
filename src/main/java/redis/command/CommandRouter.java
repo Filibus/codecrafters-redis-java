@@ -68,6 +68,9 @@ public final class CommandRouter {
         }
         String name = command.name().toUpperCase(Locale.ROOT);
         if (!"EXEC".equals(name) && !"DISCARD".equals(name) && store.connectionIsOpen(connectionId)) {
+            if("WATCH".equals(name)){
+                return RespWriter.error("WATCH inside MULTI is not allowed");
+            }
             return store.addCommand(connectionId, command);
         }
         return executeInTransaction(command, connectionId);

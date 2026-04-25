@@ -16,6 +16,9 @@ public final class WatchHandler implements CommandHandler {
 
     @Override
     public String execute(List<String> args, String connectionId) {
+        if(store.connectionIsOpen(connectionId)){
+            return RespWriter.error("WATCH inside MULTI is not allowed");
+        }
         return RespWriter.OK;
     }
 }
